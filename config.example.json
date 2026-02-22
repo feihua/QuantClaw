@@ -1,0 +1,61 @@
+{
+  "system": {
+    "logLevel": "info"
+  },
+  "llm": {
+    "model": "openai/qwen-max",
+    "maxIterations": 15,
+    "temperature": 0.7,
+    "maxTokens": 4096
+  },
+  "providers": {
+    "openai": {
+      "apiKey": "YOUR_OPENAI_API_KEY",
+      "baseUrl": "https://api.openai.com/v1",
+      "timeout": 30
+    },
+    "anthropic": {
+      "apiKey": "YOUR_ANTHROPIC_API_KEY",
+      "baseUrl": "https://api.anthropic.com",
+      "timeout": 30
+    }
+  },
+  "gateway": {
+    "port": 18789,
+    "bind": "loopback",
+    "auth": {
+      "mode": "token",
+      "token": "YOUR_SECRET_TOKEN"
+    },
+    "controlUi": {
+      "enabled": true,
+      "port": 18790
+    }
+  },
+  "channels": {
+    "discord": {
+      "enabled": false,
+      "token": "YOUR_DISCORD_BOT_TOKEN",
+      "allowedIds": []
+    },
+    "telegram": {
+      "enabled": false,
+      "token": "YOUR_TELEGRAM_BOT_TOKEN",
+      "allowedIds": []
+    }
+  },
+  "tools": {
+    "allow": ["group:fs", "group:runtime"],
+    "deny": []
+  },
+  "security": {
+    "sandbox": {
+      "enabled": true,
+      "allowedPaths": ["~/.quantclaw/agents/default/workspace"],
+      "deniedPaths": ["/etc", "/sys", "/proc"]
+    }
+  },
+  "mcp": {
+    "servers": []
+  }
+}

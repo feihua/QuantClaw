@@ -1,0 +1,27 @@
+# Build output
+build/
+build_test/
+cmake-build-*/
+*.o
+*.a
+*.so
+*.dylib
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs and runtime
+*.log
+*.pid
+
+# Node adapter dependencies
+adapters/node_modules/
+adapters/package-lock.json

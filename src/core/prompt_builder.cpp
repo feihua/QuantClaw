@@ -1,0 +1,148 @@
+#include "quantclaw/core/prompt_builder.hpp"
+#include "quantclaw/core/memory_manager.hpp"
+#include "quantclaw/config.hpp"
+#include "quantclaw/tools/tool_registry.hpp"
+#include "quantclaw/core/skill_loader.hpp"
+#include <sstream>
+#include <chrono>
+#include <iomanip>
+#include <filesystem>
+
+namespace quantclaw {
+
+PromptBuilder::PromptBuilder(std::shared_ptr<MemoryManager> memory_manager,
+                             std::shared_ptr<SkillLoader> skill_loader,
+                             std::shared_ptr<ToolRegistry> tool_registry,
+                             const QuantClawConfig* config)
+    : memory_manager_(memory_manager)
+    , skill_loader_(skill_loader)
+    , tool_registry_(tool_registry)
+    , config_(config) {
+}
+
+std::string PromptBuilder::build_full(const std::string& /*agent_id*/) const {
+    std::ostringstream prompt;
+
+    // 1. SOUL.md - identity
+    auto soul = get_section("SOUL.md");
+    if (!soul.empty()) {
+        prompt << "## Your Identity\n" << soul << "\n\n";
+    }
+
+    // 2. AGENTS.md - behavior instructions (OpenClaw)
+    auto agents = get_section("AGENTS.md");
+    if (!agents.empty()) {
+        prompt << "## Agent Behavior\n" << agents << "\n\n";
+    }
+
+    // 3. TOOLS.md - tool usage guide (OpenClaw)
+    auto tools = get_section("TOOLS.md");
+    if (!tools.empty()) {
+        prompt << "## Tool Usage Guide\n" << tools << "\n\n";
+    }
+
+    // 4. Loaded skills (multi-dir if config available, single-dir fallback)
+    std::vector<SkillMetadata> skills;
+    if (config_) {
+        skills = skill_loader_->load_skills(
+            config_->skills, memory_manager_->get_workspace_path());
+    } else {
+        skills = skill_loader_->load_skills_from_directory(
+            memory_manager_->get_workspace_path() / "skills");
+    }
+    if (!skills.empty()) {
+        prompt << "## Available Skills\n" << skill_loader_->get_skill_context(skills) << "\n\n";
+    }
+
+    // 5. Memory context (recent daily memory)
+    try {
+        auto memory_content = get_section("MEMORY.md");
+        if (!memory_content.empty()) {
+            prompt << "## Memory\n" << memory_content << "\n\n";
+        }
+    } catch (...) {}
+
+    // 6. Runtime info
+    prompt << "## Runtime Information\n" << get_runtime_info() << "\n\n";
+
+    // 7. Available tools
+    auto tool_schemas = tool_registry_->get_tool_schemas();
+    if (!tool_schemas.empty()) {
+        prompt << "## Available Tools\n";
+        for (const auto& schema : tool_schemas) {
+            prompt << "- **" << schema.name << "**: " << schema.description << "\n";
+        }
+        prompt << "\n";
+    }
+
+    // Default identity fallback
+    prompt << "You are QuantClaw, a high-performance C++ personal AI assistant. "
+           << "Use the available tools when needed to help the user. "
+           << "Always be concise and helpful.";
+
+    return prompt.str();
+}
+
+std::string PromptBuilder::build_minimal(const std::string& /*agent_id*/) const {
+    std::ostringstream prompt;
+
+    // Identity only
+    auto soul = get_section("SOUL.md");
+    if (!soul.empty()) {
+        prompt << "## Your Identity\n" << soul << "\n\n";
+    }
+
+    // Tools
+    auto tool_schemas = tool_registry_->get_tool_schemas();
+    if (!tool_schemas.empty()) {
+        prompt << "## Available Tools\n";
+        for (const auto& schema : tool_schemas) {
+            prompt << "- **" << schema.name << "**: " << schema.description << "\n";
+        }
+        prompt << "\n";
+    }
+
+    prompt << "You are QuantClaw, a helpful AI assistant.";
+
+    return prompt.str();
+}
+
+std::string PromptBuilder::get_section(const std::string& filename) const {
+    try {
+        return memory_manager_->read_identity_file(filename);
+    } catch (const std::exception&) {
+        return "";
+    }
+}
+
+std::string PromptBuilder::get_runtime_info() const {
+    std::ostringstream info;
+
+    // Current time
+    auto now = std::chrono::system_clock::now();
+    auto time_t = std::chrono::system_clock::to_time_t(now);
+    std::tm tm;
+#ifdef _WIN32
+    gmtime_s(&tm, &time_t);
+#else
+    gmtime_r(&time_t, &tm);
+#endif
+
+    info << "- Current time: " << std::put_time(&tm, "%Y-%m-%dT%H:%M:%SZ") << "\n";
+    info << "- Workspace: " << memory_manager_->get_workspace_path().string() << "\n";
+    info << "- Platform: "
+#ifdef __linux__
+         << "linux"
+#elif defined(__APPLE__)
+         << "darwin"
+#elif defined(_WIN32)
+         << "win32"
+#else
+         << "unknown"
+#endif
+         << "\n";
+
+    return info.str();
+}
+
+} // namespace quantclaw

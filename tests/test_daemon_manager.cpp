@@ -1,3 +1,6 @@
+// Copyright 2025 QuantClaw Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 #include <gtest/gtest.h>
 #include <memory>
 #include <filesystem>
@@ -7,6 +10,7 @@
 #include "quantclaw/gateway/daemon_manager.hpp"
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/null_sink.h>
+#include "test_helpers.hpp"
 
 using namespace quantclaw::gateway;
 
@@ -14,8 +18,7 @@ class DaemonManagerTest : public ::testing::Test {
 protected:
     void SetUp() override {
         // Use a temp directory as HOME so we don't touch the real system
-        test_home_ = std::filesystem::temp_directory_path() / "quantclaw_daemon_test";
-        std::filesystem::create_directories(test_home_);
+        test_home_ = quantclaw::test::MakeTestDir("quantclaw_daemon_test");
 
         original_home_ = std::getenv("HOME") ? std::getenv("HOME") : "";
         setenv("HOME", test_home_.c_str(), 1);
@@ -68,12 +71,12 @@ TEST_F(DaemonManagerTest, ConstructorCreatesQuantclawDir) {
 // --- get_pid ---
 
 TEST_F(DaemonManagerTest, GetPidNoPidFile) {
-    EXPECT_EQ(daemon_->get_pid(), -1);
+    EXPECT_EQ(daemon_->GetPid(), -1);
 }
 
 TEST_F(DaemonManagerTest, GetPidValidPidFile) {
     write_pid_file(12345);
-    EXPECT_EQ(daemon_->get_pid(), 12345);
+    EXPECT_EQ(daemon_->GetPid(), 12345);
 }
 
 TEST_F(DaemonManagerTest, GetPidEmptyFile) {
@@ -82,7 +85,7 @@ TEST_F(DaemonManagerTest, GetPidEmptyFile) {
     f << "";
     f.close();
     // Empty file → extraction fails, pid stays -1
-    EXPECT_EQ(daemon_->get_pid(), -1);
+    EXPECT_EQ(daemon_->GetPid(), -1);
 }
 
 TEST_F(DaemonManagerTest, GetPidInvalidContent) {
@@ -91,36 +94,36 @@ TEST_F(DaemonManagerTest, GetPidInvalidContent) {
     f << "not_a_number";
     f.close();
     // Non-numeric → extraction fails, pid stays -1
-    int pid = daemon_->get_pid();
+    int pid = daemon_->GetPid();
     EXPECT_LE(pid, 0);
 }
 
 // --- is_running ---
 
 TEST_F(DaemonManagerTest, IsRunningNoPidFile) {
-    EXPECT_FALSE(daemon_->is_running());
+    EXPECT_FALSE(daemon_->IsRunning());
 }
 
 TEST_F(DaemonManagerTest, IsRunningCurrentProcess) {
     // Write our own PID — the current process is definitely running
     write_pid_file(getpid());
-    EXPECT_TRUE(daemon_->is_running());
+    EXPECT_TRUE(daemon_->IsRunning());
 }
 
 TEST_F(DaemonManagerTest, IsRunningDeadProcess) {
     // PID 999999999 almost certainly doesn't exist
     write_pid_file(999999999);
-    EXPECT_FALSE(daemon_->is_running());
+    EXPECT_FALSE(daemon_->IsRunning());
 }
 
 TEST_F(DaemonManagerTest, IsRunningNegativePid) {
     write_pid_file(-1);
-    EXPECT_FALSE(daemon_->is_running());
+    EXPECT_FALSE(daemon_->IsRunning());
 }
 
 TEST_F(DaemonManagerTest, IsRunningZeroPid) {
     write_pid_file(0);
-    EXPECT_FALSE(daemon_->is_running());
+    EXPECT_FALSE(daemon_->IsRunning());
 }
 
 // --- Multiple constructions ---
@@ -129,6 +132,6 @@ TEST_F(DaemonManagerTest, MultipleInstancesSharePidFile) {
     write_pid_file(getpid());
 
     auto daemon2 = std::make_unique<DaemonManager>(logger_);
-    EXPECT_EQ(daemon_->get_pid(), daemon2->get_pid());
-    EXPECT_TRUE(daemon2->is_running());
+    EXPECT_EQ(daemon_->GetPid(), daemon2->GetPid());
+    EXPECT_TRUE(daemon2->IsRunning());
 }

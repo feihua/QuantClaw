@@ -331,11 +331,11 @@ Any OpenClaw-compatible client can connect using the same `connect` + `chat.send
 ## Docker
 
 ```bash
-# Build and run
-docker compose up -d
+# Build and run (Docker files are in scripts/ directory)
+docker compose -f scripts/docker-compose.yml up -d
 
 # Or build manually
-docker build -t quantclaw .
+docker build -f scripts/Dockerfile -t quantclaw .
 docker run -d \
   -p 18789:18789 \
   -e OPENAI_API_KEY=your-key \
@@ -343,7 +343,7 @@ docker run -d \
   quantclaw
 ```
 
-The Docker image uses a multi-stage build (Ubuntu 22.04) and runs as a non-root user. Configuration is persisted via the `/home/quantclaw/.quantclaw` volume.
+The Docker image uses a multi-stage build (Ubuntu 22.04) and runs as a non-root user. Configuration is persisted via the `/home/quantclaw/.quantclaw` volume. Docker files are located in the `scripts/` directory.
 
 ## Plugin Ecosystem
 

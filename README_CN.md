@@ -340,11 +340,11 @@ curl http://localhost:18790/api/plugins/commands
 ## Docker 部署
 
 ```bash
-# 一键启动
-docker compose up -d
+# 一键启动（Docker 文件位于 scripts/ 目录）
+docker compose -f scripts/docker-compose.yml up -d
 
 # 或手动构建
-docker build -t quantclaw .
+docker build -f scripts/Dockerfile -t quantclaw .
 docker run -d \
   -p 18789:18789 \
   -e OPENAI_API_KEY=your-key \
@@ -352,7 +352,7 @@ docker run -d \
   quantclaw
 ```
 
-Docker 镜像使用多阶段构建（基于 Ubuntu 22.04），以非 root 用户运行。配置数据通过 `/home/quantclaw/.quantclaw` 卷持久化。
+Docker 镜像使用多阶段构建（基于 Ubuntu 22.04），以非 root 用户运行。配置数据通过 `/home/quantclaw/.quantclaw` 卷持久化。Docker 文件位于 `scripts/` 目录。
 
 ## 插件生态
 

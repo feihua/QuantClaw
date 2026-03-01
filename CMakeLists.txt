@@ -195,7 +195,6 @@ if(BUILD_TESTS)
         tests/test_subagent.cpp
         tests/test_browser_tool.cpp
         tests/test_platform.cpp
-        tests/test_platform.cpp
         tests/test_rbac.cpp
         tests/test_rate_limiter.cpp
     )

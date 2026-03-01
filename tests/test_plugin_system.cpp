@@ -11,6 +11,7 @@
 #include "quantclaw/plugins/hook_manager.hpp"
 #include "quantclaw/plugins/plugin_system.hpp"
 #include "quantclaw/config.hpp"
+#include "test_helpers.hpp"
 
 namespace fs = std::filesystem;
 
@@ -22,8 +23,7 @@ static std::shared_ptr<spdlog::logger> make_null_logger(const std::string& name)
 class PluginManifestTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    test_dir_ = fs::temp_directory_path() / "quantclaw_test_plugins";
-    fs::create_directories(test_dir_);
+    test_dir_ = quantclaw::test::MakeTestDir("quantclaw_test_plugins");
   }
 
   void TearDown() override {

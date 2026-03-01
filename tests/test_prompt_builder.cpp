@@ -11,12 +11,12 @@
 #include "quantclaw/core/skill_loader.hpp"
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/null_sink.h>
+#include "test_helpers.hpp"
 
 class PromptBuilderTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        test_dir_ = std::filesystem::temp_directory_path() / "quantclaw_prompt_test";
-        std::filesystem::create_directories(test_dir_);
+        test_dir_ = quantclaw::test::MakeTestDir("quantclaw_prompt_test");
         std::filesystem::create_directories(test_dir_ / "skills");
 
         auto null_sink = std::make_shared<spdlog::sinks::null_sink_mt>();

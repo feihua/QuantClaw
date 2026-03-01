@@ -13,6 +13,7 @@
 #include "quantclaw/core/skill_loader.hpp"
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/null_sink.h>
+#include "test_helpers.hpp"
 
 // Mock LLM provider that returns canned responses and captures requests
 class MockLLMProvider : public quantclaw::LLMProvider {
@@ -44,8 +45,7 @@ public:
 class AgentLoopTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        test_dir_ = std::filesystem::temp_directory_path() / "quantclaw_agent_test";
-        std::filesystem::create_directories(test_dir_);
+        test_dir_ = quantclaw::test::MakeTestDir("quantclaw_agent_test");
 
         auto null_sink = std::make_shared<spdlog::sinks::null_sink_mt>();
         logger_ = std::make_shared<spdlog::logger>("test", null_sink);

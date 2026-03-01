@@ -9,13 +9,13 @@
 #include <sys/resource.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include "test_helpers.hpp"
 #endif
 
 class SandboxTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        test_dir_ = std::filesystem::temp_directory_path() / "quantclaw_sandbox_test";
-        std::filesystem::create_directories(test_dir_);
+        test_dir_ = quantclaw::test::MakeTestDir("quantclaw_sandbox_test");
     }
 
     void TearDown() override {

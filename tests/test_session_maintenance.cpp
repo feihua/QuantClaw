@@ -7,6 +7,7 @@
 #include <fstream>
 #include <filesystem>
 #include "quantclaw/session/session_maintenance.hpp"
+#include "test_helpers.hpp"
 
 namespace quantclaw {
 
@@ -20,8 +21,7 @@ class SessionMaintenanceTest : public ::testing::Test {
   std::filesystem::path test_dir_;
 
   void SetUp() override {
-    test_dir_ = std::filesystem::temp_directory_path() / "qc_maint_test";
-    std::filesystem::create_directories(test_dir_);
+    test_dir_ = quantclaw::test::MakeTestDir("qc_maint_test");
   }
 
   void TearDown() override {

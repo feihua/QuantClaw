@@ -14,12 +14,12 @@
 #include "quantclaw/core/skill_loader.hpp"
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/null_sink.h>
+#include "test_helpers.hpp"
 
 class ConfigTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        test_dir_ = std::filesystem::temp_directory_path() / "quantclaw_config_test";
-        std::filesystem::create_directories(test_dir_);
+        test_dir_ = quantclaw::test::MakeTestDir("quantclaw_config_test");
     }
 
     void TearDown() override {
@@ -324,8 +324,8 @@ TEST_F(ConfigTest, ConfigFileWatcher_DetectsChange) {
 
     auto mtime1 = std::filesystem::last_write_time(config_path);
 
-    // Wait and modify
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    // Wait >1s so filesystem mtime (which may have 1s resolution) changes
+    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
     {
         std::ofstream f(config_path);
         f << R"({"agent": {"model": "updated-model"}})";

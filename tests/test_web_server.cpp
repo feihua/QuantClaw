@@ -6,6 +6,7 @@
 #include <thread>
 #include <chrono>
 #include "quantclaw/web/web_server.hpp"
+#include "test_helpers.hpp"
 #include <httplib.h>
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/null_sink.h>
@@ -25,8 +26,7 @@ protected:
     }
 
     int find_free_port() {
-        static int port = 38000;
-        return port++;
+        return quantclaw::test::FindFreePort();
     }
 
     std::shared_ptr<spdlog::logger> logger_;

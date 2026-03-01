@@ -8,12 +8,12 @@
 #include "quantclaw/core/memory_manager.hpp"
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/null_sink.h>
+#include "test_helpers.hpp"
 
 class MemoryManagerTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        test_dir_ = std::filesystem::temp_directory_path() / "quantclaw_memory_test";
-        std::filesystem::create_directories(test_dir_);
+        test_dir_ = quantclaw::test::MakeTestDir("quantclaw_memory_test");
 
         auto null_sink = std::make_shared<spdlog::sinks::null_sink_mt>();
         logger_ = std::make_shared<spdlog::logger>("test", null_sink);
@@ -143,8 +143,8 @@ TEST_F(MemoryManagerTest, FileWatcherDetectsChange) {
 
     memory_manager_->StartFileWatcher();
 
-    // Wait for initial scan
-    std::this_thread::sleep_for(std::chrono::seconds(1));
+    // Wait for initial scan + ensure mtime granularity (>1s on some FS)
+    std::this_thread::sleep_for(std::chrono::seconds(2));
 
     // Modify the file
     {
@@ -152,8 +152,8 @@ TEST_F(MemoryManagerTest, FileWatcherDetectsChange) {
         f << "modified content";
     }
 
-    // Wait for watcher to detect (polls every 5 seconds)
-    std::this_thread::sleep_for(std::chrono::seconds(7));
+    // Wait for watcher to detect (polls every 5 seconds, plus margin for CI)
+    std::this_thread::sleep_for(std::chrono::seconds(12));
 
     memory_manager_->StopFileWatcher();
 

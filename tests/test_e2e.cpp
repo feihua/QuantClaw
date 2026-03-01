@@ -13,6 +13,7 @@
 #include "quantclaw/gateway/gateway_client.hpp"
 #include "quantclaw/gateway/protocol.hpp"
 #include "quantclaw/core/agent_loop.hpp"
+#include "test_helpers.hpp"
 #include "quantclaw/core/memory_manager.hpp"
 #include "quantclaw/core/prompt_builder.hpp"
 #include "quantclaw/session/session_manager.hpp"
@@ -86,7 +87,7 @@ class E2ETest : public ::testing::Test {
 protected:
     void SetUp() override {
         // Temp directories
-        test_dir_ = std::filesystem::temp_directory_path() / "quantclaw_e2e_test";
+        test_dir_ = quantclaw::test::MakeTestDir("quantclaw_e2e_test");
         workspace_dir_ = test_dir_ / "workspace";
         sessions_dir_ = test_dir_ / "sessions";
         std::filesystem::create_directories(workspace_dir_);
@@ -158,8 +159,7 @@ protected:
     }
 
     static int next_port() {
-        static std::atomic<int> p{31000};
-        return p++;
+        return quantclaw::test::FindFreePort();
     }
 
     int port_ = next_port();
@@ -369,7 +369,7 @@ TEST_F(E2ETest, E2E_ChainExecute) {
 class E2EAuthTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        test_dir_ = std::filesystem::temp_directory_path() / "quantclaw_e2e_auth_test";
+        test_dir_ = quantclaw::test::MakeTestDir("quantclaw_e2e_auth_test");
         workspace_dir_ = test_dir_ / "workspace";
         sessions_dir_ = test_dir_ / "sessions";
         std::filesystem::create_directories(workspace_dir_);
@@ -416,8 +416,7 @@ protected:
     }
 
     static int next_port() {
-        static std::atomic<int> p{32000};
-        return p++;
+        return quantclaw::test::FindFreePort();
     }
 
     int port_ = next_port();

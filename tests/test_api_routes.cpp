@@ -6,13 +6,13 @@
 #include <thread>
 #include <chrono>
 #include <filesystem>
-#include <atomic>
 
 #include "quantclaw/web/web_server.hpp"
 #include "quantclaw/web/api_routes.hpp"
 #include "quantclaw/gateway/gateway_server.hpp"
 #include "quantclaw/core/agent_loop.hpp"
 #include "quantclaw/core/memory_manager.hpp"
+#include "test_helpers.hpp"
 #include "quantclaw/core/prompt_builder.hpp"
 #include "quantclaw/session/session_manager.hpp"
 #include "quantclaw/tools/tool_registry.hpp"
@@ -53,7 +53,7 @@ public:
 class ApiRoutesTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        test_dir_ = std::filesystem::temp_directory_path() / "quantclaw_api_test";
+        test_dir_ = quantclaw::test::MakeTestDir("quantclaw_api_test");
         workspace_dir_ = test_dir_ / "workspace";
         sessions_dir_ = test_dir_ / "sessions";
         std::filesystem::create_directories(workspace_dir_);
@@ -111,8 +111,7 @@ protected:
     }
 
     static int next_port() {
-        static std::atomic<int> p{39000};
-        return p++;
+        return quantclaw::test::FindFreePort();
     }
 
     int gw_port_ = next_port();
@@ -328,7 +327,7 @@ TEST_F(ApiRoutesTest, CorsHeaders) {
 class ApiRoutesAuthTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        test_dir_ = std::filesystem::temp_directory_path() / "quantclaw_api_auth_test";
+        test_dir_ = quantclaw::test::MakeTestDir("quantclaw_api_auth_test");
         workspace_dir_ = test_dir_ / "workspace";
         sessions_dir_ = test_dir_ / "sessions";
         std::filesystem::create_directories(workspace_dir_);
@@ -375,8 +374,7 @@ protected:
     }
 
     static int next_port() {
-        static std::atomic<int> p{40000};
-        return p++;
+        return quantclaw::test::FindFreePort();
     }
 
     int gw_port_ = next_port();
@@ -427,7 +425,7 @@ TEST_F(ApiRoutesAuthTest, HealthBypassesAuth) {
 class ApiRoutesReloadTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        test_dir_ = std::filesystem::temp_directory_path() / "quantclaw_api_reload_test";
+        test_dir_ = quantclaw::test::MakeTestDir("quantclaw_api_reload_test");
         workspace_dir_ = test_dir_ / "workspace";
         sessions_dir_ = test_dir_ / "sessions";
         std::filesystem::create_directories(workspace_dir_);
@@ -486,8 +484,7 @@ protected:
     }
 
     static int next_port() {
-        static std::atomic<int> p{41000};
-        return p++;
+        return quantclaw::test::FindFreePort();
     }
 
     int gw_port_ = next_port();
@@ -529,7 +526,7 @@ TEST_F(ApiRoutesReloadTest, ConfigReloadEndpoint) {
 class ApiGatewayInfoTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        test_dir_ = std::filesystem::temp_directory_path() / "quantclaw_api_gwinfo_test";
+        test_dir_ = quantclaw::test::MakeTestDir("quantclaw_api_gwinfo_test");
         workspace_dir_ = test_dir_ / "workspace";
         sessions_dir_ = test_dir_ / "sessions";
         std::filesystem::create_directories(workspace_dir_);
@@ -599,8 +596,7 @@ protected:
     }
 
     static int next_port() {
-        static std::atomic<int> p{42000};
-        return p++;
+        return quantclaw::test::FindFreePort();
     }
 
     int gw_port_ = next_port();

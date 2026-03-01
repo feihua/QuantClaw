@@ -9,6 +9,7 @@
 #include "quantclaw/tools/tool_registry.hpp"
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/null_sink.h>
+#include "test_helpers.hpp"
 
 // Simple MCP tool backed by ToolRegistry
 class RegistryBackedTool : public quantclaw::mcp::MCPTool {
@@ -27,8 +28,7 @@ private:
 class MCPIntegrationTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        test_dir_ = std::filesystem::temp_directory_path() / "quantclaw_mcp_integ_test";
-        std::filesystem::create_directories(test_dir_);
+        test_dir_ = quantclaw::test::MakeTestDir("quantclaw_mcp_integ_test");
 
         auto null_sink = std::make_shared<spdlog::sinks::null_sink_mt>();
         logger_ = std::make_shared<spdlog::logger>("test", null_sink);

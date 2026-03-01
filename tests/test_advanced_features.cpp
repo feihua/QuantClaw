@@ -9,6 +9,7 @@
 #include "quantclaw/core/session_compaction.hpp"
 #include "quantclaw/core/cron_scheduler.hpp"
 #include "quantclaw/core/memory_search.hpp"
+#include "test_helpers.hpp"
 
 namespace fs = std::filesystem;
 
@@ -209,8 +210,7 @@ TEST(CronExpressionTest, NextAfter) {
 class CronSchedulerTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    test_dir_ = fs::temp_directory_path() / "quantclaw_cron_test";
-    fs::create_directories(test_dir_);
+    test_dir_ = quantclaw::test::MakeTestDir("quantclaw_cron_test");
     logger_ = make_null_logger("cron_test");
   }
 
@@ -286,8 +286,7 @@ TEST_F(CronSchedulerTest, JobToJson) {
 class MemorySearchTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    test_dir_ = fs::temp_directory_path() / "quantclaw_memsearch_test";
-    fs::create_directories(test_dir_);
+    test_dir_ = quantclaw::test::MakeTestDir("quantclaw_memsearch_test");
     logger_ = make_null_logger("memsearch_test");
   }
 

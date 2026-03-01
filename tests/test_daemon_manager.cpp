@@ -10,6 +10,7 @@
 #include "quantclaw/gateway/daemon_manager.hpp"
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/null_sink.h>
+#include "test_helpers.hpp"
 
 using namespace quantclaw::gateway;
 
@@ -17,8 +18,7 @@ class DaemonManagerTest : public ::testing::Test {
 protected:
     void SetUp() override {
         // Use a temp directory as HOME so we don't touch the real system
-        test_home_ = std::filesystem::temp_directory_path() / "quantclaw_daemon_test";
-        std::filesystem::create_directories(test_home_);
+        test_home_ = quantclaw::test::MakeTestDir("quantclaw_daemon_test");
 
         original_home_ = std::getenv("HOME") ? std::getenv("HOME") : "";
         setenv("HOME", test_home_.c_str(), 1);

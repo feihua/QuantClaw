@@ -9,6 +9,7 @@
 #include "quantclaw/gateway/gateway_server.hpp"
 #include "quantclaw/gateway/gateway_client.hpp"
 #include "quantclaw/gateway/protocol.hpp"
+#include "test_helpers.hpp"
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/null_sink.h>
 
@@ -29,9 +30,7 @@ protected:
     }
 
     int find_free_port() {
-        // Use a high random port to avoid conflicts
-        static int port = 29000;
-        return port++;
+        return quantclaw::test::FindFreePort();
     }
 
     std::shared_ptr<spdlog::logger> logger_;

@@ -47,23 +47,30 @@ set(QUANTCLAW_CORE_SOURCES
     src/core/session_compaction.cpp
     src/core/cron_scheduler.cpp
     src/core/memory_search.cpp
+    src/core/context_pruner.cpp
+    src/core/message_commands.cpp
     src/core/subagent.cpp
     # Providers
     src/providers/curl_raii.cpp
     src/providers/openai_provider.cpp
     src/providers/anthropic_provider.cpp
     src/providers/provider_registry.cpp
+    src/providers/provider_error.cpp
+    src/providers/cooldown_tracker.cpp
+    src/providers/failover_resolver.cpp
     # CLI
     src/cli/cli_manager.cpp
     src/cli/commands.cpp
     src/cli/gateway_commands.cpp
     src/cli/agent_commands.cpp
     src/cli/session_commands.cpp
+    src/cli/onboard_commands.cpp
     # Gateway
     src/gateway/gateway_server.cpp
     src/gateway/gateway_client.cpp
     src/gateway/rpc_handlers.cpp
     src/gateway/daemon_manager.cpp
+    src/gateway/command_queue.cpp
     # Session
     src/session/session_manager.cpp
     src/session/session_maintenance.cpp
@@ -93,19 +100,19 @@ set(QUANTCLAW_CORE_SOURCES
     # Web
     src/web/web_server.cpp
     src/web/api_routes.cpp
+    # IPC — single TCP implementation for all platforms
+    src/platform/ipc_tcp.cpp
 )
 
-# Platform-specific sources
+# Platform-specific sources (process + service abstractions)
 if(WIN32)
     list(APPEND QUANTCLAW_CORE_SOURCES
         src/platform/process_win32.cpp
-        src/platform/ipc_win32.cpp
         src/platform/service_win32.cpp
     )
 else()
     list(APPEND QUANTCLAW_CORE_SOURCES
         src/platform/process_unix.cpp
-        src/platform/ipc_unix.cpp
         src/platform/service_unix.cpp
     )
 endif()
@@ -130,6 +137,11 @@ target_link_libraries(quantclaw_core
         OpenSSL::SSL
         OpenSSL::Crypto
 )
+
+# WinSock2 required by ipc_tcp.cpp on Windows
+if(WIN32)
+    target_link_libraries(quantclaw_core PUBLIC ws2_32)
+endif()
 
 add_executable(quantclaw src/main.cpp)
 target_link_libraries(quantclaw PRIVATE quantclaw_core)
@@ -195,9 +207,13 @@ if(BUILD_TESTS)
         tests/test_subagent.cpp
         tests/test_browser_tool.cpp
         tests/test_platform.cpp
-        tests/test_platform.cpp
         tests/test_rbac.cpp
         tests/test_rate_limiter.cpp
+        tests/test_command_queue.cpp
+        tests/test_failover.cpp
+        tests/test_context_management.cpp
+        tests/test_session_compaction.cpp
+        tests/test_message_commands.cpp
     )
 
     add_executable(quantclaw_tests ${TEST_SOURCES})

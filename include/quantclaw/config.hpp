@@ -18,6 +18,13 @@ struct AgentConfig {
     double temperature = 0.7;
     int max_tokens = 4096;
     std::string thinking = "off";  // "off" | "low" | "medium" | "high"
+    std::vector<std::string> fallbacks;  // Model fallback chain
+
+    // Auto-compaction settings
+    bool auto_compact = true;          // Enable automatic compaction
+    int compact_max_messages = 100;    // Compact when history exceeds this
+    int compact_keep_recent = 20;      // Keep this many recent messages
+    int compact_max_tokens = 100000;   // Compact when tokens exceed this
 
     static AgentConfig FromJson(const nlohmann::json& json);
 };
@@ -97,18 +104,18 @@ struct GatewayAuthConfig {
 
 struct GatewayControlUiConfig {
     bool enabled = true;
-    int port = 18790;
+    int port = 18801;  // QuantClaw HTTP/Dashboard port
 
     static GatewayControlUiConfig FromJson(const nlohmann::json& json) {
         GatewayControlUiConfig c;
         c.enabled = json.value("enabled", true);
-        c.port = json.value("port", 18790);
+        c.port = json.value("port", 18801);
         return c;
     }
 };
 
 struct GatewayConfig {
-    int port = 18789;
+    int port = 18800;  // QuantClaw WebSocket RPC port
     std::string bind = "loopback";
     GatewayAuthConfig auth;
     GatewayControlUiConfig control_ui;
@@ -197,6 +204,9 @@ struct QuantClawConfig {
 
     // Exec approval config (raw JSON, consumed by ExecApprovalManager)
     nlohmann::json exec_approval_config;
+
+    // Queue config (raw JSON, consumed by CommandQueue)
+    nlohmann::json queue_config;
 
     // Legacy compatibility
     std::unordered_map<std::string, ToolConfig> tools;

@@ -12,6 +12,7 @@
 #include "quantclaw/cli/gateway_commands.hpp"
 #include "quantclaw/cli/agent_commands.hpp"
 #include "quantclaw/cli/session_commands.hpp"
+#include "quantclaw/cli/onboard_commands.hpp"
 #include "quantclaw/gateway/gateway_client.hpp"
 #include "quantclaw/core/skill_loader.hpp"
 #include "quantclaw/core/memory_search.hpp"
@@ -32,9 +33,38 @@ int main(int argc, char* argv[]) {
     auto gateway_cmds = std::make_shared<quantclaw::cli::GatewayCommands>(logger);
     auto agent_cmds = std::make_shared<quantclaw::cli::AgentCommands>(logger);
     auto session_cmds = std::make_shared<quantclaw::cli::SessionCommands>(logger);
+    auto onboard_cmds = std::make_shared<quantclaw::cli::OnboardCommands>(logger);
 
     // Build CLI
     quantclaw::cli::CLIManager cli;
+
+    // --- onboard command ---
+    cli.AddCommand({
+        "onboard",
+        "Interactive setup wizard for initial configuration",
+        {},
+        [onboard_cmds](int argc, char** argv) -> int {
+            std::vector<std::string> args;
+            for (int i = 1; i < argc; ++i) args.push_back(argv[i]);
+
+            if (args.empty()) {
+                return onboard_cmds->OnboardCommand(args);
+            }
+
+            std::string sub = args[0];
+            std::vector<std::string> sub_args(args.begin() + 1, args.end());
+
+            if (sub == "--install-daemon") {
+                return onboard_cmds->InstallDaemonCommand(sub_args);
+            }
+            if (sub == "--quick") {
+                return onboard_cmds->QuickSetupCommand(sub_args);
+            }
+
+            // Default: run full wizard
+            return onboard_cmds->OnboardCommand(args);
+        }
+    });
 
     // --- gateway command ---
     cli.AddCommand({
@@ -62,7 +92,7 @@ int main(int argc, char* argv[]) {
             if (sub == "status")    return gateway_cmds->StatusCommand(sub_args);
             if (sub == "call")      return gateway_cmds->CallCommand(sub_args);
 
-            // Flags on direct gateway command â†’ foreground mode
+            // Flags on direct gateway command â†?foreground mode
             if (sub == "--port" || sub == "--foreground" || sub == "--bind") {
                 return gateway_cmds->ForegroundCommand(args);
             }
@@ -151,7 +181,7 @@ int main(int argc, char* argv[]) {
 
             try {
                 auto client = std::make_shared<quantclaw::gateway::GatewayClient>(
-                    "ws://127.0.0.1:18789", "", logger);
+                    "ws://127.0.0.1:18800", "", logger);
                 if (!client->Connect(timeout_ms)) {
                     if (json_output) {
                         std::cout << R"({"status":"unreachable"})" << std::endl;
@@ -199,7 +229,7 @@ int main(int argc, char* argv[]) {
             if (sub == "reload") {
                 try {
                     auto client = std::make_shared<quantclaw::gateway::GatewayClient>(
-                        "ws://127.0.0.1:18789", "", logger);
+                        "ws://127.0.0.1:18800", "", logger);
                     if (!client->Connect(3000)) {
                         std::cerr << "Error: Gateway not running" << std::endl;
                         return 1;
@@ -223,7 +253,7 @@ int main(int argc, char* argv[]) {
 
                 try {
                     auto client = std::make_shared<quantclaw::gateway::GatewayClient>(
-                        "ws://127.0.0.1:18789", "", logger);
+                        "ws://127.0.0.1:18800", "", logger);
                     if (!client->Connect(3000)) {
                         // Fallback: read config file directly
                         auto config = quantclaw::QuantClawConfig::LoadFromFile(
@@ -284,7 +314,7 @@ int main(int argc, char* argv[]) {
 
                     // Notify running gateway to reload
                     auto client = std::make_shared<quantclaw::gateway::GatewayClient>(
-                        "ws://127.0.0.1:18789", "", logger);
+                        "ws://127.0.0.1:18800", "", logger);
                     if (client->Connect(1000)) {
                         client->Call("config.reload", {});
                         client->Disconnect();
@@ -310,7 +340,7 @@ int main(int argc, char* argv[]) {
 
                     // Notify running gateway to reload
                     auto client = std::make_shared<quantclaw::gateway::GatewayClient>(
-                        "ws://127.0.0.1:18789", "", logger);
+                        "ws://127.0.0.1:18800", "", logger);
                     if (client->Connect(1000)) {
                         client->Call("config.reload", {});
                         client->Disconnect();
@@ -417,7 +447,7 @@ int main(int argc, char* argv[]) {
             bool gw_ok = false;
             try {
                 auto client = std::make_shared<quantclaw::gateway::GatewayClient>(
-                    "ws://127.0.0.1:18789", "", logger);
+                    "ws://127.0.0.1:18800", "", logger);
                 gw_ok = client->Connect(2000);
                 if (gw_ok) client->Disconnect();
             } catch (const std::exception&) {}
@@ -445,7 +475,7 @@ int main(int argc, char* argv[]) {
             if (args.empty() || args[0] == "list") {
                 try {
                     auto client = std::make_shared<quantclaw::gateway::GatewayClient>(
-                        "ws://127.0.0.1:18789", "", logger);
+                        "ws://127.0.0.1:18800", "", logger);
                     if (client->Connect(3000)) {
                         auto result = client->Call("cron.list", {});
                         client->Disconnect();
@@ -478,7 +508,7 @@ int main(int argc, char* argv[]) {
                 }
                 try {
                     auto client = std::make_shared<quantclaw::gateway::GatewayClient>(
-                        "ws://127.0.0.1:18789", "", logger);
+                        "ws://127.0.0.1:18800", "", logger);
                     if (client->Connect(3000)) {
                         auto result = client->Call("cron.add", {
                             {"schedule", schedule},
@@ -497,7 +527,7 @@ int main(int argc, char* argv[]) {
             if (args[0] == "remove" && args.size() >= 2) {
                 try {
                     auto client = std::make_shared<quantclaw::gateway::GatewayClient>(
-                        "ws://127.0.0.1:18789", "", logger);
+                        "ws://127.0.0.1:18800", "", logger);
                     if (client->Connect(3000)) {
                         client->Call("cron.remove", {{"id", args[1]}});
                         client->Disconnect();
@@ -538,7 +568,7 @@ int main(int argc, char* argv[]) {
 
                 try {
                     auto client = std::make_shared<quantclaw::gateway::GatewayClient>(
-                        "ws://127.0.0.1:18789", "", logger);
+                        "ws://127.0.0.1:18800", "", logger);
                     if (client->Connect(3000)) {
                         auto result = client->Call("memory.search",
                                                    {{"query", query}});
@@ -574,7 +604,7 @@ int main(int argc, char* argv[]) {
             if (args[0] == "status") {
                 try {
                     auto client = std::make_shared<quantclaw::gateway::GatewayClient>(
-                        "ws://127.0.0.1:18789", "", logger);
+                        "ws://127.0.0.1:18800", "", logger);
                     if (client->Connect(3000)) {
                         auto result = client->Call("memory.status", {});
                         client->Disconnect();
@@ -603,7 +633,7 @@ int main(int argc, char* argv[]) {
                 if (std::string(argv[i]) == "--no-open") no_open = true;
             }
 
-            int port = 18790;
+            int port = 18801;
             try {
                 auto config = quantclaw::QuantClawConfig::LoadFromFile(
                     quantclaw::QuantClawConfig::DefaultConfigPath());
@@ -644,7 +674,7 @@ int main(int argc, char* argv[]) {
 
             auto make_client = [&logger]() -> std::shared_ptr<quantclaw::gateway::GatewayClient> {
                 auto c = std::make_shared<quantclaw::gateway::GatewayClient>(
-                    "ws://127.0.0.1:18789", "", logger);
+                    "ws://127.0.0.1:18800", "", logger);
                 if (!c->Connect(3000)) {
                     std::cerr << "Error: Gateway not running" << std::endl;
                     return nullptr;
@@ -835,7 +865,7 @@ int main(int argc, char* argv[]) {
                 }
                 try {
                     auto client = std::make_shared<quantclaw::gateway::GatewayClient>(
-                        "ws://127.0.0.1:18789", "", logger);
+                        "ws://127.0.0.1:18800", "", logger);
                     if (!client->Connect(3000)) {
                         // Fallback: show configured model from config file
                         auto config = quantclaw::QuantClawConfig::LoadFromFile(
@@ -887,7 +917,7 @@ int main(int argc, char* argv[]) {
 
                     // Also update running gateway via RPC
                     auto client = std::make_shared<quantclaw::gateway::GatewayClient>(
-                        "ws://127.0.0.1:18789", "", logger);
+                        "ws://127.0.0.1:18800", "", logger);
                     if (client->Connect(3000)) {
                         client->Call("models.set", {{"model", model}});
                         client->Disconnect();
@@ -903,7 +933,7 @@ int main(int argc, char* argv[]) {
             if (sub == "aliases") {
                 try {
                     auto client = std::make_shared<quantclaw::gateway::GatewayClient>(
-                        "ws://127.0.0.1:18789", "", logger);
+                        "ws://127.0.0.1:18800", "", logger);
                     if (!client->Connect(3000)) {
                         std::cerr << "Gateway not running" << std::endl;
                         return 1;

@@ -13,6 +13,9 @@
 #include "quantclaw/core/cron_scheduler.hpp"
 #include "quantclaw/security/exec_approval.hpp"
 #include "quantclaw/core/session_compaction.hpp"
+#include "quantclaw/plugins/plugin_system.hpp"
+#include "quantclaw/gateway/command_queue.hpp"
+#include "quantclaw/core/message_commands.hpp"
 #include "quantclaw/config.hpp"
 #include <chrono>
 #include <functional>
@@ -33,7 +36,9 @@ void register_rpc_handlers(
     std::shared_ptr<quantclaw::ProviderRegistry> provider_registry,
     std::shared_ptr<quantclaw::SkillLoader> skill_loader,
     std::shared_ptr<quantclaw::CronScheduler> cron_scheduler,
-    std::shared_ptr<quantclaw::ExecApprovalManager> exec_approval_mgr)
+    std::shared_ptr<quantclaw::ExecApprovalManager> exec_approval_mgr,
+    quantclaw::PluginSystem* plugin_system,
+    CommandQueue* command_queue)
 {
     // --- gateway.health ---
     server.RegisterHandler(methods::kGatewayHealth,
@@ -123,7 +128,7 @@ void register_rpc_handlers(
     };
 
     auto execute_agent_request = [session_manager, agent_loop, prompt_builder, logger, &server](
-        const nlohmann::json& params, ClientConnection& client,
+        const nlohmann::json& params, ClientConnection& /*client*/,
         quantclaw::AgentEventCallback event_callback) -> AgentRequestResult
     {
         std::string session_key = params.value("sessionKey", "agent:main:main");
@@ -131,6 +136,41 @@ void register_rpc_handlers(
 
         if (message.empty()) {
             throw std::runtime_error("message is required");
+        }
+
+        // --- In-conversation slash command interception ---
+        // Check if the message is a slash command (/new, /reset, /compact, etc.)
+        // before forwarding to the LLM.
+        {
+            quantclaw::MessageCommandParser::Handlers cmd_handlers;
+            cmd_handlers.reset_session = [session_manager](const std::string& key) {
+                session_manager->ResetSession(key);
+            };
+            cmd_handlers.compact_session = [session_manager, logger](const std::string& key) {
+                auto history = session_manager->GetHistory(key, -1);
+                if (history.size() > 20) {
+                    // Simple truncation (keep last 20 messages)
+                    session_manager->ResetSession(key);
+                    int keep = std::min(20, static_cast<int>(history.size()));
+                    for (int i = static_cast<int>(history.size()) - keep;
+                         i < static_cast<int>(history.size()); ++i) {
+                        session_manager->AppendMessage(key, history[i]);
+                    }
+                    logger->info("Compacted session {}: kept {} of {} messages",
+                                 key, keep, history.size());
+                }
+            };
+            cmd_handlers.get_status = [session_manager](const std::string& key) {
+                auto history = session_manager->GetHistory(key, -1);
+                return "Session: " + key + "\nMessages: " +
+                       std::to_string(history.size());
+            };
+
+            quantclaw::MessageCommandParser cmd_parser(std::move(cmd_handlers));
+            auto cmd_result = cmd_parser.Parse(message, session_key);
+            if (cmd_result.handled) {
+                return {session_key, cmd_result.reply};
+            }
         }
 
         // Get or create session
@@ -858,11 +898,152 @@ void register_rpc_handlers(
         }
     );
 
+    // --- Plugin methods ---
+    if (plugin_system) {
+        // plugins.list
+        server.RegisterHandler(methods::kPluginsList,
+            [plugin_system](const nlohmann::json& /*params*/,
+                            ClientConnection& /*client*/) -> nlohmann::json {
+                return {{"plugins", plugin_system->Registry().ToJson()}};
+            }
+        );
+
+        // plugins.tools
+        server.RegisterHandler(methods::kPluginsTools,
+            [plugin_system](const nlohmann::json& /*params*/,
+                            ClientConnection& /*client*/) -> nlohmann::json {
+                return {{"tools", plugin_system->GetToolSchemas()}};
+            }
+        );
+
+        // plugins.call_tool
+        server.RegisterHandler(methods::kPluginsCallTool,
+            [plugin_system](const nlohmann::json& params,
+                            ClientConnection& /*client*/) -> nlohmann::json {
+                std::string name = params.value("toolName", "");
+                if (name.empty()) throw std::runtime_error("toolName is required");
+                auto args = params.value("args", nlohmann::json::object());
+                return plugin_system->CallTool(name, args);
+            }
+        );
+
+        // plugins.services
+        server.RegisterHandler(methods::kPluginsServices,
+            [plugin_system](const nlohmann::json& params,
+                            ClientConnection& /*client*/) -> nlohmann::json {
+                std::string action = params.value("action", "list");
+                if (action == "start") {
+                    return plugin_system->StartService(params.value("serviceId", ""));
+                }
+                if (action == "stop") {
+                    return plugin_system->StopService(params.value("serviceId", ""));
+                }
+                return {{"services", plugin_system->ListServices()}};
+            }
+        );
+
+        // plugins.providers
+        server.RegisterHandler(methods::kPluginsProviders,
+            [plugin_system](const nlohmann::json& /*params*/,
+                            ClientConnection& /*client*/) -> nlohmann::json {
+                return {{"providers", plugin_system->ListProviders()}};
+            }
+        );
+
+        // plugins.commands
+        server.RegisterHandler(methods::kPluginsCommands,
+            [plugin_system](const nlohmann::json& params,
+                            ClientConnection& /*client*/) -> nlohmann::json {
+                std::string action = params.value("action", "list");
+                if (action == "execute") {
+                    std::string cmd = params.value("command", "");
+                    auto args = params.value("args", nlohmann::json::object());
+                    return plugin_system->ExecuteCommand(cmd, args);
+                }
+                return {{"commands", plugin_system->ListCommands()}};
+            }
+        );
+
+        // plugins.gateway — forward plugin-registered gateway methods
+        server.RegisterHandler(methods::kPluginsGateway,
+            [plugin_system](const nlohmann::json& params,
+                            ClientConnection& /*client*/) -> nlohmann::json {
+                std::string action = params.value("action", "list");
+                if (action == "list") {
+                    return {{"methods", plugin_system->ListGatewayMethods()}};
+                }
+                return {{"methods", plugin_system->ListGatewayMethods()}};
+            }
+        );
+    }
+
+    // ================================================================
+    // Queue management RPC handlers
+    // ================================================================
+    if (command_queue) {
+        // --- queue.status ---
+        server.RegisterHandler(methods::kQueueStatus,
+            [command_queue](const nlohmann::json& params, ClientConnection& /*client*/) -> nlohmann::json {
+                std::string session_key = params.value("sessionKey", "");
+                if (!session_key.empty()) {
+                    return command_queue->SessionQueueStatus(session_key);
+                }
+                return command_queue->GlobalStatus();
+            }
+        );
+
+        // --- queue.configure ---
+        server.RegisterHandler(methods::kQueueConfigure,
+            [command_queue](const nlohmann::json& params, ClientConnection& /*client*/) -> nlohmann::json {
+                std::string session_key = params.value("sessionKey", "");
+                if (session_key.empty()) {
+                    // Global config update
+                    auto new_config = QueueConfig::FromJson(params);
+                    command_queue->SetConfig(new_config);
+                    return {{"ok", true}, {"scope", "global"}};
+                }
+                // Per-session config
+                auto mode = QueueModeFromString(params.value("mode", "collect"));
+                int debounce = params.value("debounceMs", -1);
+                int cap = params.value("cap", -1);
+                std::string drop = params.value("drop", "");
+                command_queue->ConfigureSession(session_key, mode, debounce, cap, drop);
+                return {{"ok", true}, {"scope", "session"}, {"sessionKey", session_key}};
+            }
+        );
+
+        // --- queue.cancel ---
+        server.RegisterHandler(methods::kQueueCancel,
+            [command_queue](const nlohmann::json& params, ClientConnection& /*client*/) -> nlohmann::json {
+                std::string command_id = params.value("commandId", "");
+                if (command_id.empty()) {
+                    throw std::runtime_error("commandId is required");
+                }
+                bool cancelled = command_queue->Cancel(command_id);
+                return {{"ok", cancelled}, {"commandId", command_id}};
+            }
+        );
+
+        // --- queue.abort ---
+        server.RegisterHandler(methods::kQueueAbort,
+            [command_queue](const nlohmann::json& params, ClientConnection& /*client*/) -> nlohmann::json {
+                std::string session_key = params.value("sessionKey", "");
+                if (session_key.empty()) {
+                    throw std::runtime_error("sessionKey is required");
+                }
+                bool aborted = command_queue->AbortSession(session_key);
+                return {{"ok", aborted}, {"sessionKey", session_key}};
+            }
+        );
+    }
+
     int handler_count = 22;  // base handlers
     if (reload_fn) handler_count++;
     if (skill_loader) handler_count += 2;
     if (cron_scheduler) handler_count += 3;
     if (exec_approval_mgr) handler_count += 2;
+    if (plugin_system) handler_count += 7;
+    if (command_queue) handler_count += 4;
     logger->info("Registered {} RPC handlers", handler_count);
 }
 

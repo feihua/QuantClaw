@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "quantclaw/providers/anthropic_provider.hpp"
+#include "quantclaw/providers/provider_error.hpp"
 
 #include <sstream>
 
@@ -15,6 +16,33 @@ namespace quantclaw {
 static size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* userp) {
     userp->append((char*)contents, size * nmemb);
     return size * nmemb;
+}
+
+// Captures the Retry-After header value from HTTP response headers.
+struct RetryAfterCapture {
+    int retry_after_seconds = 0;
+};
+
+static size_t HeaderCallback(char* buffer, size_t size, size_t nitems, void* userdata) {
+    size_t total = size * nitems;
+    auto* capture = static_cast<RetryAfterCapture*>(userdata);
+    std::string header(buffer, total);
+
+    if (header.size() > 12) {
+        std::string lower = header.substr(0, 12);
+        for (auto& c : lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (lower == "retry-after:") {
+            std::string value = header.substr(12);
+            auto start = value.find_first_not_of(" \t");
+            if (start != std::string::npos) {
+                value = value.substr(start);
+            }
+            try {
+                capture->retry_after_seconds = std::stoi(value);
+            } catch (...) {}
+        }
+    }
+    return total;
 }
 
 // Serialize messages to Anthropic format.
@@ -202,6 +230,7 @@ std::string AnthropicProvider::GetProviderName() const {
 std::string AnthropicProvider::MakeApiRequest(
     const std::string& json_payload) const {
     std::string read_buffer;
+    RetryAfterCapture retry_capture;
 
     CurlHandle curl;
     CurlSlist headers = CreateHeaders();
@@ -212,13 +241,38 @@ std::string AnthropicProvider::MakeApiRequest(
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json_payload.c_str());
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &read_buffer);
+    curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, HeaderCallback);
+    curl_easy_setopt(curl, CURLOPT_HEADERDATA, &retry_capture);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout_);
 
     CURLcode res = curl_easy_perform(curl);
     if (res != CURLE_OK) {
-        throw std::runtime_error(
-            "CURL request failed: " +
-            std::string(curl_easy_strerror(res)));
+        ProviderErrorKind kind = ProviderErrorKind::kUnknown;
+        if (res == CURLE_OPERATION_TIMEDOUT) {
+            kind = ProviderErrorKind::kTimeout;
+        } else if (res == CURLE_COULDNT_CONNECT ||
+                   res == CURLE_COULDNT_RESOLVE_HOST) {
+            kind = ProviderErrorKind::kTransient;
+        }
+        throw ProviderError(kind, 0,
+                            "CURL request failed: " +
+                            std::string(curl_easy_strerror(res)),
+                            "anthropic");
+    }
+
+    // Check HTTP status code
+    long http_code = 0;
+    curl_easy_getinfo(curl.get(), CURLINFO_RESPONSE_CODE, &http_code);
+
+    if (http_code >= 400) {
+        auto error_kind = ClassifyHttpError(
+            static_cast<int>(http_code), read_buffer);
+        ProviderError err(error_kind, static_cast<int>(http_code),
+                          "Anthropic API error (HTTP " +
+                          std::to_string(http_code) + "): " + read_buffer,
+                          "anthropic");
+        err.SetRetryAfterSeconds(retry_capture.retry_after_seconds);
+        throw err;
     }
 
     return read_buffer;
@@ -387,6 +441,8 @@ void AnthropicProvider::ChatCompletionStream(const ChatCompletionRequest& reques
     stream_ctx.callback = callback;
     stream_ctx.logger = logger_;
 
+    RetryAfterCapture retry_capture;
+
     CurlHandle curl;
     CurlSlist headers = CreateHeaders();
 
@@ -396,6 +452,8 @@ void AnthropicProvider::ChatCompletionStream(const ChatCompletionRequest& reques
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json_payload.c_str());
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, AnthropicStreamWriteCallback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &stream_ctx);
+    curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, HeaderCallback);
+    curl_easy_setopt(curl, CURLOPT_HEADERDATA, &retry_capture);
 
     // For streaming: no hard timeout, use low-speed detection instead
     curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 1L);
@@ -403,9 +461,31 @@ void AnthropicProvider::ChatCompletionStream(const ChatCompletionRequest& reques
 
     CURLcode res = curl_easy_perform(curl);
     if (res != CURLE_OK) {
-        throw std::runtime_error(
-            "CURL streaming request failed: " +
-            std::string(curl_easy_strerror(res)));
+        ProviderErrorKind kind = ProviderErrorKind::kUnknown;
+        if (res == CURLE_OPERATION_TIMEDOUT) {
+            kind = ProviderErrorKind::kTimeout;
+        } else if (res == CURLE_COULDNT_CONNECT ||
+                   res == CURLE_COULDNT_RESOLVE_HOST) {
+            kind = ProviderErrorKind::kTransient;
+        }
+        throw ProviderError(kind, 0,
+                            "CURL streaming request failed: " +
+                            std::string(curl_easy_strerror(res)),
+                            "anthropic");
+    }
+
+    // Check HTTP status code for streaming requests too
+    long http_code = 0;
+    curl_easy_getinfo(curl.get(), CURLINFO_RESPONSE_CODE, &http_code);
+
+    if (http_code >= 400) {
+        auto error_kind = ClassifyHttpError(static_cast<int>(http_code), "");
+        ProviderError err(error_kind, static_cast<int>(http_code),
+                          "Anthropic streaming API error (HTTP " +
+                          std::to_string(http_code) + ")",
+                          "anthropic");
+        err.SetRetryAfterSeconds(retry_capture.retry_after_seconds);
+        throw err;
     }
 }
 

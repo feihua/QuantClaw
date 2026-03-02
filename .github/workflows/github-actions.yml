@@ -15,8 +15,8 @@ permissions:
   contents: read
 
 jobs:
-  build-test:
-    name: Build & Test (${{ matrix.compiler }})
+  build-test-linux:
+    name: Build & Test Linux (${{ matrix.compiler }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -67,7 +67,7 @@ jobs:
       if: failure()
       uses: actions/upload-artifact@v4
       with:
-        name: test-results-${{ matrix.compiler }}
+        name: test-results-linux-${{ matrix.compiler }}
         path: build/Testing/
 
   docker-build:
@@ -84,6 +84,7 @@ jobs:
       uses: docker/build-push-action@v5
       with:
         context: .
+        file: scripts/Dockerfile
         push: false
         tags: quantclaw:test
         cache-from: type=gha
@@ -112,7 +113,7 @@ jobs:
         echo "Checking code formatting..."
         FAILED_FILES=""
 
-        for file in $(find src include tests -name "*.cpp" -o -name "*.hpp"); do
+        for file in $(find src include tests -not -path "*/dashboard/*" -name "*.cpp" -o -name "*.hpp"); do
           if ! clang-format-14 --dry-run --Werror "$file" 2>&1 > /dev/null; then
             FAILED_FILES="$FAILED_FILES\n  - $file"
           fi
@@ -147,4 +148,6 @@ jobs:
           --inline-suppr \
           --error-exitcode=0 \
           -I include \
+          --suppress='*:dashboard/*' \
+          -i dashboard \
           src/

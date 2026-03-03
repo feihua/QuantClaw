@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  quantclaw:
+    build: .
+    container_name: quantclaw
+    restart: unless-stopped
+    ports:
+      - "18800:18800"   # Gateway WebSocket
+      - "18801:18801"   # Dashboard/REST API
+    volumes:
+      - quantclaw_data:/home/quantclaw/.quantclaw
+    environment:
+      - QUANTCLAW_LOG_LEVEL=info
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+    networks:
+      - quantclaw_network
+    healthcheck:
+      test: ["CMD", "quantclaw", "health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 128M
+
+  quantclaw-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: quantclaw-test
+
+volumes:
+  quantclaw_data:
+    driver: local
+
+networks:
+  quantclaw_network:
+    driver: bridge

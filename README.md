@@ -23,13 +23,19 @@ QuantClaw is a native C++ implementation of the [OpenClaw](https://github.com/op
 - **OpenClaw Compatible**: Works with OpenClaw workspace files, skills, and configuration
 - **Dual Protocol**: WebSocket RPC gateway + HTTP REST API
 - **Multi-Provider LLM**: OpenAI-compatible and Anthropic APIs with `provider/model` prefix routing
+- **Model Failover**: Multi-key rotation with exponential backoff cooldowns and automatic model fallback chains
+- **Command Queue**: Per-session serialization with collect/followup/steer/interrupt modes and global concurrency control
+- **Context Management**: Auto-compaction, tool result pruning, and BM25 memory search
 - **Channel Adapters**: Connect Discord, Telegram, or custom bots to the gateway
 - **Session Persistence**: Full conversation history with tool call context preserved in JSONL
-- **Skill System**: Compatible with OpenClaw SKILL.md format
+- **Skill System**: Compatible with OpenClaw SKILL.md format (both OpenClaw and QuantClaw manifest formats)
+- **Plugin Ecosystem**: Full OpenClaw plugin compatibility via Node.js sidecar — tools, hooks, services, providers, commands, HTTP routes, and gateway methods
 - **MCP Support**: Model Context Protocol for external tool integration
 - **File System First**: No database dependencies — everything stored in your workspace
 
 ## Quick Start
+
+### 1. Build QuantClaw
 
 ```bash
 git clone https://github.com/QuantClaw/QuantClaw.git
@@ -43,6 +49,69 @@ make -j$(nproc)
 
 # Install (optional)
 sudo make install
+```
+
+### 2. Run Onboarding Wizard
+
+```bash
+# Interactive setup wizard (recommended)
+quantclaw onboard
+
+# Or with automatic daemon installation
+quantclaw onboard --install-daemon
+
+# Or quick setup without prompts
+quantclaw onboard --quick
+```
+
+The onboarding wizard guides you through:
+- Configuration setup (gateway port, AI model, etc.)
+- Workspace creation (SOUL.md, skills directory, etc.)
+- Optional daemon installation as system service
+- Skills initialization
+- Setup verification
+
+### 3. Start the Gateway
+
+```bash
+# If installed as service
+quantclaw gateway start
+
+# Or run in foreground
+quantclaw gateway
+```
+
+### 4. Open Dashboard
+
+```bash
+quantclaw dashboard
+```
+
+This opens the web UI at `http://127.0.0.1:18801`
+
+## Port Configuration
+
+QuantClaw uses dedicated ports to avoid conflicts with OpenClaw and other services:
+
+| Service | Port | Purpose |
+|---------|------|---------|
+| WebSocket RPC Gateway | `18800` | Main gateway for client connections |
+| HTTP REST API / Dashboard | `18801` | Control UI and REST API endpoints |
+| Sidecar IPC (TCP loopback) | `18802-18899` | Node.js Sidecar process communication |
+
+**Note**: QuantClaw uses ports `18800-18801` (different from OpenClaw's `18789-18790`), allowing both to run simultaneously.
+
+To use custom ports, edit `~/.quantclaw/quantclaw.json`:
+
+```json
+{
+  "gateway": {
+    "port": 18800,
+    "controlUi": {
+      "port": 18801
+    }
+  }
+}
 ```
 
 ## Architecture
@@ -71,11 +140,14 @@ QuantClaw uses JSON configuration (`~/.quantclaw/quantclaw.json`):
 
 ```json
 {
-  "llm": {
+  "agent": {
     "model": "openai/qwen-max",
     "maxIterations": 15,
     "temperature": 0.7,
-    "maxTokens": 4096
+    "maxTokens": 4096,
+    "fallbacks": ["anthropic/claude-sonnet-4-6"],
+    "autoCompact": true,
+    "compactMaxMessages": 100
   },
   "providers": {
     "openai": {
@@ -83,11 +155,16 @@ QuantClaw uses JSON configuration (`~/.quantclaw/quantclaw.json`):
       "baseUrl": "https://api.openai.com/v1"
     }
   },
+  "queue": {
+    "maxConcurrent": 4,
+    "debounceMs": 1000,
+    "defaultMode": "collect"
+  },
   "gateway": {
-    "port": 18789,
+    "port": 18800,
     "bind": "loopback",
     "auth": { "mode": "token", "token": "YOUR_SECRET_TOKEN" },
-    "controlUi": { "enabled": true, "port": 18790 }
+    "controlUi": { "enabled": true, "port": 18801 }
   },
   "channels": {
     "discord": { "enabled": false, "token": "YOUR_DISCORD_TOKEN" },
@@ -97,6 +174,11 @@ QuantClaw uses JSON configuration (`~/.quantclaw/quantclaw.json`):
     "allow": ["group:fs", "group:runtime"],
     "deny": []
   },
+  "system": {
+    "logLevel": "info",
+    "logRetentionDays": 7,
+    "logMaxSizeMb": 50
+  },
   "security": {
     "sandbox": { "enabled": true }
   }
@@ -105,10 +187,21 @@ QuantClaw uses JSON configuration (`~/.quantclaw/quantclaw.json`):
 
 The model field uses `provider/model-name` prefix routing. If no prefix is given, it defaults to `openai`. See `config.example.json` for a full example with all options.
 
+### Log Retention
+
+QuantClaw enforces automatic log cleanup on every gateway startup to prevent disk exhaustion.
+
+| Option | Key | Default | Description |
+|--------|-----|---------|-------------|
+| Retention period | `system.logRetentionDays` | `7` | Delete `.log` files older than N days. Set to `0` to keep forever. |
+| Total size cap | `system.logMaxSizeMb` | `50` | Maximum total log storage in MiB, split across 5 rotating files (~10 MiB each). |
+
+Log files are stored at `~/.quantclaw/logs/`. The main application log (`quantclaw.log`) is size-rotated automatically by spdlog; the gateway service log (`gateway.log`, written by systemd) is time-pruned at every startup.
+
 ### Dependencies
 
 **Required (system packages)**:
-- C++17 compiler (GCC 7+, Clang 5+, MSVC 19.14+)
+- C++17 compiler (GCC 7+ or Clang 5+)
 - spdlog — logging
 - nlohmann/json — JSON library
 - libcurl — HTTP client
@@ -119,7 +212,35 @@ The model field uses `provider/model-name` prefix routing. If no prefix is given
 - cpp-httplib 0.18.3 — HTTP server
 - Google Test 1.14.0 — testing framework
 
+### Ubuntu / Debian one-liner
+
+```bash
+sudo apt install build-essential cmake libssl-dev \
+  libcurl4-openssl-dev nlohmann-json3-dev libspdlog-dev zlib1g-dev
+```
+
 ## Usage
+
+### Onboarding Wizard
+
+The easiest way to get started is the interactive onboarding wizard:
+
+```bash
+# Run the full wizard
+quantclaw onboard
+
+# Install daemon automatically
+quantclaw onboard --install-daemon
+
+# Quick setup (non-interactive)
+quantclaw onboard --quick
+```
+
+The wizard creates:
+- Configuration file (`~/.quantclaw/quantclaw.json`)
+- Workspace directory (`~/.quantclaw/agents/main/workspace/`)
+- SOUL.md (agent identity file)
+- Optional systemd service for daemon mode
 
 ### Gateway (background service)
 
@@ -130,6 +251,9 @@ quantclaw gateway
 # Install as system service (systemd / launchd)
 quantclaw gateway install
 
+# Uninstall the service
+quantclaw gateway uninstall
+
 # Start / stop / restart daemon
 quantclaw gateway start
 quantclaw gateway stop
@@ -137,6 +261,9 @@ quantclaw gateway restart
 
 # Check status
 quantclaw gateway status
+
+# Call any RPC method directly
+quantclaw gateway call gateway.health
 ```
 
 ### Agent interaction
@@ -158,14 +285,100 @@ quantclaw sessions delete <session-key>
 quantclaw sessions reset <session-key>
 ```
 
+### Config management
+
+```bash
+quantclaw config get                    # View full config
+quantclaw config get agent.model        # View a specific value (dot-path)
+quantclaw config set agent.model "anthropic/claude-sonnet-4-6"  # Change a value
+quantclaw config unset agent.temperature                        # Remove a key
+quantclaw config reload                 # Hot-reload config (no restart needed)
+```
+
+### Skills management
+
+```bash
+quantclaw skills list              # List loaded skills
+quantclaw skills install <name>    # Install a skill's dependencies
+```
+
+### Memory search
+
+```bash
+quantclaw memory search "<query>"  # BM25 search across workspace memory files
+quantclaw memory status            # Show memory index stats
+```
+
+### Cron scheduler
+
+```bash
+quantclaw cron list                            # List scheduled tasks
+quantclaw cron add <name> <schedule> <task>    # Add a cron task (cron expression)
+quantclaw cron remove <id>                     # Remove a task by ID
+```
+
 ### Other commands
 
 ```bash
 quantclaw health          # Quick health check
-quantclaw config get      # View config
-quantclaw skills list     # List loaded skills
+quantclaw logs            # Stream gateway logs
 quantclaw doctor          # Diagnostic check
+quantclaw dashboard       # Open web UI in browser
 ```
+
+### In-conversation message commands
+
+While chatting, prefix a message with a slash command to control the session:
+
+| Command | Effect |
+|---------|--------|
+| `/new` | Start a new session |
+| `/reset` | Clear current session history |
+| `/compact` | Manually trigger context compaction |
+| `/status` | Show current session and queue status |
+| `/commands` | List all available slash commands |
+| `/help` | Show help text |
+
+## Skill System
+
+Skills extend the agent's capabilities by injecting contextual instructions and tools into the system prompt. Each skill is a directory containing a `SKILL.md` file.
+
+### Built-in Skills
+
+| Skill | Description | Always Active |
+|-------|-------------|---------------|
+| 🌦️ `weather` | Check current weather via wttr.in | Yes |
+| 🐙 `github` | Interact with GitHub using the `gh` CLI | No (requires `gh`) |
+| 🏥 `healthcheck` | System health audit and diagnostics | Yes |
+| 🎨 `skill-creator` | Guide for creating new skills | Yes |
+
+### Creating Custom Skills
+
+Place a skill directory in `~/.quantclaw/agents/main/workspace/skills/` or a global skills path:
+
+```yaml
+# skills/my-skill/SKILL.md
+---
+name: my-skill
+emoji: "🔧"
+description: What this skill does
+requires:
+  bins:
+    - required-binary    # Must be installed for skill to activate
+  env:
+    - REQUIRED_ENV_VAR
+always: false            # true = always injected; false = on-demand
+metadata:
+  openclaw:
+    install:
+      apt: package-name  # Auto-installed via `skills install`
+      node: npm-package
+---
+
+Markdown instructions here — injected into the agent's system prompt when the skill is active.
+```
+
+Skills are compatible with the OpenClaw SKILL.md format.
 
 ## Channel Adapters
 
@@ -195,41 +408,61 @@ When the gateway starts, it launches enabled adapters automatically. Each adapte
 
 ## HTTP REST API
 
-When the gateway is running, the HTTP API is available at `http://localhost:18790`:
+When the gateway is running, the HTTP API is available at `http://localhost:18801`:
 
 ```bash
 # Health check
-curl http://localhost:18790/api/health
+curl http://localhost:18801/api/health
 
 # Gateway status
-curl http://localhost:18790/api/status
+curl http://localhost:18801/api/status
 
 # Send a message (non-streaming)
-curl -X POST http://localhost:18790/api/agent/request \
+curl -X POST http://localhost:18801/api/agent/request \
   -H "Content-Type: application/json" \
   -d '{"message": "Hello!", "sessionKey": "my:session"}'
 
 # List sessions
-curl http://localhost:18790/api/sessions?limit=10
+curl http://localhost:18801/api/sessions?limit=10
 
 # Session history
-curl "http://localhost:18790/api/sessions/history?sessionKey=my:session"
+curl "http://localhost:18801/api/sessions/history?sessionKey=my:session"
 ```
 
 With authentication enabled, add the `Authorization` header:
 ```bash
-curl -H "Authorization: Bearer YOUR_TOKEN" http://localhost:18790/api/status
+curl -H "Authorization: Bearer YOUR_TOKEN" http://localhost:18801/api/status
+```
+
+### Plugin API endpoints
+
+```bash
+# List loaded plugins
+curl http://localhost:18801/api/plugins
+
+# Get tool schemas from plugins
+curl http://localhost:18801/api/plugins/tools
+
+# Call a plugin tool
+curl -X POST http://localhost:18801/api/plugins/tools/my-tool \
+  -H "Content-Type: application/json" \
+  -d '{"arg1": "value"}'
+
+# List plugin services / providers / commands
+curl http://localhost:18801/api/plugins/services
+curl http://localhost:18801/api/plugins/providers
+curl http://localhost:18801/api/plugins/commands
 ```
 
 ## WebSocket RPC Protocol (OpenClaw Compatible)
 
-The gateway exposes a WebSocket RPC interface on port 18789:
+The gateway exposes a WebSocket RPC interface on port 18800:
 
 1. Client connects → server sends `connect.challenge` with nonce
 2. Client responds with `connect.hello` containing auth token
 3. Client sends JSON-RPC requests → server responds with results
 
-**Available RPC methods**: `gateway.health`, `gateway.status`, `config.get`, `agent.request`, `agent.stop`, `sessions.list`, `sessions.history`, `sessions.delete`, `sessions.reset`, `channels.list`, `chain.execute`
+**Available RPC methods**: `gateway.health`, `gateway.status`, `config.get`, `agent.request`, `agent.stop`, `sessions.list`, `sessions.history`, `sessions.delete`, `sessions.reset`, `channels.list`, `chain.execute`, `plugins.list`, `plugins.tools`, `plugins.call_tool`, `plugins.services`, `plugins.providers`, `plugins.commands`, `plugins.gateway`, `queue.status`, `queue.configure`, `queue.cancel`, `queue.abort`
 
 Streaming responses emit real-time events: `text_delta`, `tool_use`, `tool_result`, `message_end`.
 
@@ -238,26 +471,217 @@ Any OpenClaw-compatible client can connect using the same `connect` + `chat.send
 ## Docker
 
 ```bash
-# Build and run
-docker compose up -d
+# Build and run (Docker files are in scripts/ directory)
+docker compose -f scripts/docker-compose.yml up -d
 
 # Or build manually
-docker build -t quantclaw .
+docker build -f scripts/Dockerfile -t quantclaw .
 docker run -d \
-  -p 18789:18789 \
+  -p 18800:18800 \
   -e OPENAI_API_KEY=your-key \
   -v quantclaw_data:/home/quantclaw/.quantclaw \
   quantclaw
 ```
 
-The Docker image uses a multi-stage build (Ubuntu 22.04) and runs as a non-root user. Configuration is persisted via the `/home/quantclaw/.quantclaw` volume.
+The Docker image uses a multi-stage build (Ubuntu 22.04) and runs as a non-root user. Configuration is persisted via the `/home/quantclaw/.quantclaw` volume. Docker files are located in the `scripts/` directory.
 
-## Compatibility
+## Testing
 
-- **Workspace Files**: Compatible with OpenClaw (`SOUL.md`, `USER.md`, `MEMORY.md`)
-- **Skills**: Uses OpenClaw SKILL.md format
-- **Configuration**: JSON format compatible with OpenClaw ecosystem
-- **Protocol**: WebSocket RPC with `connect` + `chat.send` — interoperable with OpenClaw clients
+### Unit Tests
+
+```bash
+cd build
+./quantclaw_tests
+# or
+ctest --output-on-failure
+```
+
+### Smoke Tests (Integration)
+
+The smoke test suite starts a real gateway process and exercises HTTP REST, WebSocket RPC, and concurrent connections — no API key required:
+
+```bash
+bash tests/smoke_test.sh
+```
+
+With an API key, agent conversation tests are also run:
+
+```bash
+OPENAI_API_KEY=sk-... bash tests/smoke_test.sh
+```
+
+Tests cover: lifecycle (health/status/auth), config RPCs, session RPCs, plugin RPCs, skill/cron/memory/queue/channel status, 10 concurrent WebSocket connections, and graceful shutdown. Logs are saved to `/tmp/quantclaw-smoke-ci/gateway.log`.
+
+### Manual LLM Testing
+
+```bash
+# Start gateway
+quantclaw gateway
+
+# Non-streaming agent request
+curl -X POST http://localhost:18801/api/agent/request \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Hello!", "sessionKey": "test:manual"}'
+
+# OpenAI-compatible chat completion
+curl -X POST http://localhost:18801/v1/chat/completions \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "openai/qwen-max", "messages": [{"role": "user", "content": "Hi"}]}'
+```
+
+## Plugin Ecosystem
+
+QuantClaw runs OpenClaw TypeScript plugins via a Node.js sidecar process. The C++ main process manages the sidecar lifecycle and communicates over **TCP loopback (127.0.0.1)** using JSON-RPC 2.0.
+
+**Supported plugin capabilities**:
+- **Tools**: Plugin-defined tools callable by the agent
+- **Hooks**: 24 lifecycle hooks (void/modifying/sync modes)
+- **Services**: Background services with start/stop management
+- **Providers**: Custom LLM providers
+- **Commands**: Slash commands exposed to the agent
+- **HTTP Routes**: Plugin-defined HTTP endpoints via `/plugins/*`
+- **Gateway Methods**: Plugin-defined RPC methods via `plugins.gateway`
+
+**Plugin discovery** (in priority order):
+1. Config-specified paths (`plugins.load.paths`)
+2. Workspace plugins (`.openclaw/plugins/` or `.quantclaw/plugins/`)
+3. Global plugins (`~/.quantclaw/plugins/`)
+4. Bundled plugins (`~/.quantclaw/bundled-plugins/`)
+
+Plugins use `openclaw.plugin.json` or `quantclaw.plugin.json` manifests, compatible with the OpenClaw plugin format.
+
+```json
+{
+  "plugins": {
+    "allow": ["my-plugin"],
+    "deny": [],
+    "entries": {
+      "my-plugin": { "enabled": true, "config": {} }
+    }
+  }
+}
+```
+
+### IPC Protocol (C++ Main Process ↔ Node.js Sidecar)
+
+The IPC between the C++ host and the sidecar uses **TCP loopback**, which works identically on Linux and Windows:
+
+**Connection setup**:
+1. The C++ host binds to `127.0.0.1:0` — the OS assigns a free port.
+2. The assigned port is forwarded to the sidecar child process via the `QUANTCLAW_PORT` environment variable.
+3. The sidecar connects with Node.js's built-in `net.createConnection(port, '127.0.0.1')` — no extra npm packages needed.
+
+**Frame format (NDJSON)**:
+
+Each message is one JSON object followed by a newline `\n` ([Newline-Delimited JSON](https://ndjson.org/)):
+
+```
+{"jsonrpc":"2.0","method":"plugin.tools","params":{},"id":1}\n
+{"jsonrpc":"2.0","result":[...],"id":1}\n
+```
+
+**Why `\n` never appears inside a JSON object**:
+
+The JSON specification ([RFC 8259 §7](https://www.rfc-editor.org/rfc/rfc8259#section-7)) mandates that control characters (U+0000–U+001F, including newline U+000A) inside strings **must** be escaped as `\n` (backslash + letter n, 2 bytes) — never as raw byte `0x0A`.
+
+- C++ side: `nlohmann::json::dump()` (no indent) produces compact JSON with all control characters auto-escaped.
+- Node.js side: `JSON.stringify()` (no indent) gives the same guarantee.
+
+The `\n` byte (`0x0A`) therefore **only** appears as a frame delimiter between messages, never inside a JSON payload. This is the same NDJSON framing used by Redis, Docker Events, and OpenAI streaming.
+
+## OpenClaw Compatibility Status
+
+QuantClaw aims for full compatibility with [OpenClaw](https://github.com/openclaw/openclaw) (v2026.2). The table below summarizes current alignment:
+
+| Module | Status | Notes |
+|--------|--------|-------|
+| Workspace files | **Full** | `SOUL.md`, `USER.md`, `MEMORY.md`, `SKILL.md` |
+| Skills format | **Full** | Both `metadata.openclaw` and flat formats |
+| Plugin hooks (24 types) | **Full** | All hook names and modes (void/modifying/sync) aligned |
+| Plugin Sidecar IPC | **Full** | Tools, hooks, services, providers, commands, HTTP routes, gateway methods |
+| JSONL session format | **Partial** | Basic read/write compatible; missing branching (parentId), 8 entry types, write lock |
+| Config format | **Partial** | JSON only (no JSON5 comments/trailing commas), no `$include`, no `${VAR}` env substitution |
+| CLI commands | **Partial** | Core commands present; ~28 top-level commands from OpenClaw not yet implemented |
+| Gateway RPC protocol | **Partial** | ~30 methods implemented; ~85+ OpenClaw methods pending |
+| Provider system | **Partial** | OpenAI + Anthropic + 5 OpenAI-compatible; missing OAuth, GitHub Copilot, Qwen, etc. |
+| Agent loop | **Partial** | Core loop works; missing lane-based queue, auth rotation, overflow compaction |
+| Memory search | **Partial** | BM25 keyword search only; missing hybrid vector search (embeddings, SQLite, MMR) |
+| Context management | **Partial** | Compaction + pruning work; missing multi-stage summary, budget-based pruning |
+| Channel system | **Partial** | External subprocess adapters; no built-in channels, no 7-tier routing |
+| Security / Sandbox | **Partial** | RBAC + rate limiter + sandbox; missing Docker sandbox, security audit framework |
+| MCP | **Partial** | Basic implementation; method names and transport being aligned to spec |
+| Web API | **Partial** | 16 REST routes; missing OpenResponses API, webhook endpoints |
+
+### Key Differences from OpenClaw
+
+| Aspect | OpenClaw | QuantClaw |
+|--------|----------|-----------|
+| Default gateway port | `18789` | `18800` |
+| Default HTTP port | Same as gateway | `18801` (separate) |
+| Config format | JSON5 with `$include` and `${VAR}` | Strict JSON |
+| Default model | `anthropic/claude-sonnet-4-6` | `qwen-max` |
+| Default maxTokens | `8192` | `4096` |
+| Auth profiles | Multi-profile with OAuth + rotation | Single key per provider |
+| Memory search | Hybrid (vector 0.7 + BM25 0.3) | BM25 only |
+| Plugin execution | In-process (same Node.js) | Out-of-process (sidecar via TCP) |
+| Channel adapters | 8 built-in + extensions | External subprocess scripts |
+
+### QuantClaw-Only Features
+
+| Feature | Description |
+|---------|-------------|
+| `chain` meta-tool | Declarative multi-step tool pipeline with `{{prev.result}}` templates |
+| `read`/`write`/`edit` tools | Dedicated file operation tools with sandbox validation |
+| Cross-platform TCP IPC | Unified Linux/Windows sidecar communication (no Unix sockets) |
+| C++ resource limits | `setrlimit` sandbox (CPU/memory/fsize/nproc) |
+| `viewer` RBAC role | Dedicated read-only role |
+
+For the full gap analysis, see [.claude/gap-analysis.md](.claude/gap-analysis.md).
+
+## Roadmap
+
+Currently implemented: WebSocket/HTTP gateway, multi-provider LLM with failover, session persistence, plugin ecosystem, channel adapters, MCP support, onboarding wizard, and 769 passing tests (712 C++ + 57 sidecar).
+
+Not yet implemented:
+- TUI interactive mode
+- Multiple agent profiles
+- JSON5 config with `$include` and `${VAR}` support
+- Hybrid memory search (vector + BM25)
+- Built-in channel adapters (Telegram, Discord, Slack)
+- Docker sandbox isolation
+- OAuth credential flows
+
+## Troubleshooting
+
+**Gateway won't start**
+```bash
+quantclaw config get gateway.port   # Check configured port
+quantclaw doctor                    # Run diagnostics
+```
+
+**Can't connect to gateway**
+```bash
+quantclaw health    # Check if gateway is running
+quantclaw logs      # Stream logs to diagnose errors
+quantclaw status    # Show connection and session counts
+```
+
+**API calls failing**
+- Verify your LLM API key in `~/.quantclaw/quantclaw.json`
+- Check `providers.openai.baseUrl` if using a custom endpoint
+- Run `quantclaw doctor` for a full diagnostic report
+
+**Config changes not taking effect**
+```bash
+quantclaw config reload   # Hot-reload without restarting the gateway
+```
+
+**Build failures**
+- Ensure GCC 7+ or Clang 5+ with C++17 support
+- Install system dependencies: `sudo apt install build-essential cmake libssl-dev libcurl4-openssl-dev nlohmann-json3-dev libspdlog-dev`
+- Check CMake can find dependencies: `cmake .. -DCMAKE_VERBOSE_MAKEFILE=ON`
 
 ## License
 
@@ -265,10 +689,34 @@ Apache License 2.0 — See [LICENSE](LICENSE) for details.
 
 ## Contributing
 
-Contributions are welcome!
+Contributions are welcome! Please read through the guidelines before submitting.
 
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Open a pull request
+### Workflow
+
+1. Fork the repository and clone locally
+2. Create a feature branch: `git checkout -b feat/my-feature` or `fix/issue-123`
+3. Make changes, add tests for new functionality
+4. Format code: `./scripts/format-code.sh` (or use Docker: `./scripts/format-code-docker.sh`)
+5. Run tests: `cd build && ctest --output-on-failure`
+6. Commit and push, then open a Pull Request against `main`
+
+### Commit message format
+
+| Prefix | Purpose |
+|--------|---------|
+| `feat:` | New feature |
+| `fix:` | Bug fix |
+| `docs:` | Documentation changes |
+| `refactor:` | Code refactoring |
+| `test:` | Adding or updating tests |
+| `chore:` | Build / tooling changes |
+
+### Pull Request checklist
+
+- All tests pass (`ctest --output-on-failure`)
+- Code formatted with `clang-format` (CI checks this)
+- No new compiler warnings
+- README updated if adding user-facing features
+- Unit tests added for new functionality
+
+See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) for full details including IDE setup and troubleshooting build failures.

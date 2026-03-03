@@ -1,3 +1,6 @@
+// Copyright 2025 QuantClaw Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 #include "quantclaw/core/skill_loader.hpp"
 #include <fstream>
 #include <sstream>
@@ -15,7 +18,7 @@ SkillLoader::SkillLoader(std::shared_ptr<spdlog::logger> logger)
     logger_->info("SkillLoader initialized");
 }
 
-std::vector<SkillMetadata> SkillLoader::load_skills_from_directory(
+std::vector<SkillMetadata> SkillLoader::LoadSkillsFromDirectory(
     const std::filesystem::path& skills_dir) {
 
     std::vector<SkillMetadata> skills;
@@ -31,7 +34,7 @@ std::vector<SkillMetadata> SkillLoader::load_skills_from_directory(
         if (entry.is_regular_file() && entry.path().filename() == "SKILL.md") {
             try {
                 auto skill = parse_skill_file(entry.path());
-                if (check_skill_gating(skill)) {
+                if (CheckSkillGating(skill)) {
                     logger_->debug("Loaded skill: {}", skill.name);
                     skills.push_back(std::move(skill));
                 } else {
@@ -48,7 +51,7 @@ std::vector<SkillMetadata> SkillLoader::load_skills_from_directory(
     return skills;
 }
 
-bool SkillLoader::check_skill_gating(const SkillMetadata& skill) {
+bool SkillLoader::CheckSkillGating(const SkillMetadata& skill) {
     // If always=true, skip all gating
     if (skill.always) {
         return true;
@@ -111,7 +114,7 @@ bool SkillLoader::check_skill_gating(const SkillMetadata& skill) {
     return true;
 }
 
-std::string SkillLoader::get_skill_context(const std::vector<SkillMetadata>& skills) const {
+std::string SkillLoader::GetSkillContext(const std::vector<SkillMetadata>& skills) const {
     std::ostringstream context;
 
     for (const auto& skill : skills) {
@@ -122,10 +125,108 @@ std::string SkillLoader::get_skill_context(const std::vector<SkillMetadata>& ski
         if (!skill.description.empty()) {
             context << skill.description << "\n\n";
         }
-        context << skill.content << "\n\n";
+        context << skill.content << "\n";
+
+        // Append resource directory info if available
+        bool has_resources = false;
+        if (!skill.scripts_dir.empty() || !skill.references_dir.empty() ||
+            !skill.assets_dir.empty()) {
+            context << "\n**Resources:**\n";
+            has_resources = true;
+        }
+        if (!skill.scripts_dir.empty()) {
+            context << "- Scripts: `" << skill.scripts_dir << "`\n";
+        }
+        if (!skill.references_dir.empty()) {
+            context << "- References: `" << skill.references_dir << "`\n";
+        }
+        if (!skill.assets_dir.empty()) {
+            context << "- Assets: `" << skill.assets_dir << "`\n";
+        }
+
+        // List slash commands
+        if (!skill.commands.empty()) {
+            if (!has_resources) context << "\n";
+            context << "**Commands:**\n";
+            for (const auto& cmd : skill.commands) {
+                context << "- `/" << cmd.name << "`";
+                if (!cmd.description.empty()) {
+                    context << " — " << cmd.description;
+                }
+                context << "\n";
+            }
+        }
+
+        context << "\n";
     }
 
     return context.str();
+}
+
+bool SkillLoader::InstallSkill(const SkillMetadata& skill) {
+    if (skill.installs.empty()) {
+        logger_->info("Skill '{}' has no install instructions", skill.name);
+        return true;
+    }
+
+    bool all_ok = true;
+    for (const auto& inst : skill.installs) {
+        std::string eff_binary = inst.EffectiveBinary();
+        std::string eff_method = inst.EffectiveMethod();
+        std::string eff_formula = inst.EffectiveFormula();
+
+        // Skip if binary already available
+        if (!eff_binary.empty() && is_binary_available(eff_binary)) {
+            logger_->debug("Skill '{}': {} already installed", skill.name, eff_binary);
+            continue;
+        }
+
+        std::string cmd;
+        if (eff_method == "node") {
+            cmd = "npm install -g " + eff_formula;
+        } else if (eff_method == "go") {
+            cmd = "go install " + eff_formula;
+        } else if (eff_method == "uv") {
+            cmd = "uv pip install " + eff_formula;
+        } else if (eff_method == "apt") {
+            cmd = "sudo apt-get install -y " + eff_formula;
+        } else if (eff_method == "brew") {
+            cmd = "brew install " + eff_formula;
+        } else if (eff_method == "download") {
+            const char* home = std::getenv("HOME");
+            std::string bin_dir = std::string(home ? home : "/tmp") +
+                                  "/.quantclaw/bin";
+            std::filesystem::create_directories(bin_dir);
+            std::string dest = bin_dir + "/" +
+                               (eff_binary.empty() ? "downloaded" : eff_binary);
+            cmd = "curl -fsSL -o " + dest + " " + eff_formula +
+                  " && chmod +x " + dest;
+        } else {
+            logger_->warn("Skill '{}': unknown install method '{}'",
+                         skill.name, eff_method);
+            continue;
+        }
+
+        logger_->info("Installing skill '{}' via {}: {}", skill.name,
+                      eff_method, cmd);
+        int ret = std::system(cmd.c_str());
+        if (ret != 0) {
+            logger_->error("Skill '{}' install failed (exit {})", skill.name, ret);
+            all_ok = false;
+        }
+    }
+    return all_ok;
+}
+
+std::vector<SkillCommand> SkillLoader::GetAllCommands(
+    const std::vector<SkillMetadata>& skills) const {
+    std::vector<SkillCommand> commands;
+    for (const auto& skill : skills) {
+        for (const auto& cmd : skill.commands) {
+            commands.push_back(cmd);
+        }
+    }
+    return commands;
 }
 
 SkillMetadata SkillLoader::parse_skill_file(const std::filesystem::path& skill_file) const {
@@ -221,6 +322,129 @@ SkillMetadata SkillLoader::parse_skill_file(const std::filesystem::path& skill_f
                 skill.config_files = metadata["config"].get<std::vector<std::string>>();
             }
 
+            // Extract additional metadata.openclaw fields
+            if (metadata.contains("metadata") &&
+                metadata["metadata"].contains("openclaw")) {
+                const auto& oc = metadata["metadata"]["openclaw"];
+                if (oc.contains("emoji") && skill.emoji.empty()) {
+                    skill.emoji = oc["emoji"].get<std::string>();
+                }
+                if (oc.contains("primaryEnv") && skill.primary_env.empty()) {
+                    skill.primary_env = oc["primaryEnv"].get<std::string>();
+                }
+                if (oc.contains("homepage")) {
+                    skill.homepage = oc["homepage"].get<std::string>();
+                }
+                if (oc.contains("skillKey")) {
+                    skill.skill_key = oc["skillKey"].get<std::string>();
+                }
+                if (oc.contains("always") && !skill.always) {
+                    if (oc["always"].is_boolean()) {
+                        skill.always = oc["always"].get<bool>();
+                    }
+                }
+                if (oc.contains("os") && skill.os_restrict.empty()) {
+                    if (oc["os"].is_array()) {
+                        skill.os_restrict = oc["os"].get<std::vector<std::string>>();
+                    }
+                }
+            }
+            if (metadata.contains("homepage") && skill.homepage.empty()) {
+                skill.homepage = metadata["homepage"].get<std::string>();
+            }
+            if (metadata.contains("skillKey") && skill.skill_key.empty()) {
+                skill.skill_key = metadata["skillKey"].get<std::string>();
+            }
+
+            // Extract install info — supports both formats:
+            //   QuantClaw object: { "apt": "curl", "node": "@pkg/cli" }
+            //   OpenClaw array:   [{ "kind": "brew", "formula": "curl", "bins": ["curl"] }]
+            nlohmann::json* install_section = nullptr;
+            if (metadata.contains("metadata") &&
+                metadata["metadata"].contains("openclaw") &&
+                metadata["metadata"]["openclaw"].contains("install")) {
+                install_section = &metadata["metadata"]["openclaw"]["install"];
+            } else if (metadata.contains("install")) {
+                install_section = &metadata["install"];
+            }
+            if (install_section) {
+                if (install_section->is_array()) {
+                    // OpenClaw array format
+                    for (const auto& entry : *install_section) {
+                        if (!entry.is_object()) continue;
+                        SkillInstallInfo info;
+                        info.kind = entry.value("kind", "");
+                        info.method = info.kind;  // alias
+                        info.id = entry.value("id", "");
+                        info.label = entry.value("label", "");
+                        info.formula = entry.value("formula", "");
+                        info.package = entry.value("package", "");
+                        info.module = entry.value("module", "");
+                        info.url = entry.value("url", "");
+                        info.archive = entry.value("archive", "");
+                        info.target_dir = entry.value("targetDir", "");
+                        info.extract = entry.value("extract", false);
+                        info.strip_components = entry.value("stripComponents", 0);
+                        if (entry.contains("bins") && entry["bins"].is_array()) {
+                            info.bins = entry["bins"].get<std::vector<std::string>>();
+                            if (info.binary.empty() && !info.bins.empty()) {
+                                info.binary = info.bins.front();
+                            }
+                        }
+                        if (entry.contains("os") && entry["os"].is_array()) {
+                            info.os = entry["os"].get<std::vector<std::string>>();
+                        }
+                        skill.installs.push_back(std::move(info));
+                    }
+                } else if (install_section->is_object()) {
+                    // QuantClaw object format: { method: formula }
+                    for (auto it = install_section->begin();
+                         it != install_section->end(); ++it) {
+                        SkillInstallInfo info;
+                        info.method = it.key();
+                        info.kind = it.key();
+                        if (it.value().is_string()) {
+                            info.formula = it.value().get<std::string>();
+                        } else if (it.value().is_object()) {
+                            info.formula = it.value().value("formula", "");
+                            info.binary = it.value().value("binary", "");
+                            info.package = it.value().value("package", "");
+                            info.url = it.value().value("url", "");
+                            if (it.value().contains("bins") &&
+                                it.value()["bins"].is_array()) {
+                                info.bins = it.value()["bins"]
+                                    .get<std::vector<std::string>>();
+                            }
+                        }
+                        skill.installs.push_back(std::move(info));
+                    }
+                }
+            }
+
+            // Extract slash commands
+            nlohmann::json* cmds_section = nullptr;
+            if (metadata.contains("commands") && metadata["commands"].is_array()) {
+                cmds_section = &metadata["commands"];
+            } else if (metadata.contains("metadata") &&
+                       metadata["metadata"].contains("openclaw") &&
+                       metadata["metadata"]["openclaw"].contains("commands") &&
+                       metadata["metadata"]["openclaw"]["commands"].is_array()) {
+                cmds_section = &metadata["metadata"]["openclaw"]["commands"];
+            }
+            if (cmds_section) {
+                for (const auto& cmd : *cmds_section) {
+                    if (!cmd.is_object()) continue;
+                    SkillCommand sc;
+                    sc.name = cmd.value("name", "");
+                    sc.description = cmd.value("description", "");
+                    sc.tool_name = cmd.value("toolName", "");
+                    sc.arg_mode = cmd.value("argMode", "freeform");
+                    if (!sc.name.empty()) {
+                        skill.commands.push_back(std::move(sc));
+                    }
+                }
+            }
+
         } catch (const std::exception& e) {
             logger_->warn("Failed to parse skill frontmatter: {}", e.what());
         }
@@ -230,6 +454,19 @@ SkillMetadata SkillLoader::parse_skill_file(const std::filesystem::path& skill_f
     if (skill.name.empty()) {
         skill.name = skill_file.parent_path().filename().string();
     }
+
+    // Set root directory and detect resource subdirectories
+    skill.root_dir = skill_file.parent_path();
+    auto check_resource_dir = [&](const std::string& subdir) -> std::string {
+        auto p = skill.root_dir / subdir;
+        if (std::filesystem::exists(p) && std::filesystem::is_directory(p)) {
+            return p.string();
+        }
+        return "";
+    };
+    skill.scripts_dir = check_resource_dir("scripts");
+    skill.references_dir = check_resource_dir("references");
+    skill.assets_dir = check_resource_dir("assets");
 
     // Content is everything after frontmatter
     std::string content_part = file_content;
@@ -311,8 +548,10 @@ nlohmann::json SkillLoader::parse_yaml_frontmatter(const std::string& yaml_str) 
 
         if (trimmed.empty()) continue;
 
-        // Pop stack until we find a context at lower indent
-        while (ctx.size() > 1 && ctx.top().first >= indent && trimmed[0] != '-') {
+        // Pop stack until we find a context at strictly lower indent.
+        // Using '>' (not '>=') so sibling keys at the same indent stay
+        // in the same parent object instead of being popped out.
+        while (ctx.size() > 1 && ctx.top().first > indent && trimmed[0] != '-') {
             ctx.pop();
         }
 
@@ -422,7 +661,7 @@ nlohmann::json SkillLoader::parse_yaml_frontmatter(const std::string& yaml_str) 
     return root;
 }
 
-std::vector<SkillMetadata> SkillLoader::load_skills(
+std::vector<SkillMetadata> SkillLoader::LoadSkills(
     const SkillsConfig& skills_config,
     const std::filesystem::path& workspace_path) {
 
@@ -444,7 +683,7 @@ std::vector<SkillMetadata> SkillLoader::load_skills(
     std::vector<SkillMetadata> result;
 
     for (const auto& dir : dirs) {
-        auto skills = load_skills_from_directory(dir);
+        auto skills = LoadSkillsFromDirectory(dir);
         for (auto& skill : skills) {
             if (seen_names.count(skill.name)) continue;
 

@@ -1,15 +1,51 @@
+// Copyright 2025 QuantClaw Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 #include "quantclaw/providers/openai_provider.hpp"
+#include "quantclaw/providers/provider_error.hpp"
+
+#include <sstream>
+
 #include <curl/curl.h>
 #include <nlohmann/json.hpp>
-#include <sstream>
 #include <spdlog/spdlog.h>
 
 namespace quantclaw {
 
-// Helper function for CURL write callback
 static size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* userp) {
     userp->append((char*)contents, size * nmemb);
     return size * nmemb;
+}
+
+// Captures the Retry-After header value from HTTP response headers.
+struct RetryAfterCapture {
+    int retry_after_seconds = 0;
+};
+
+static size_t HeaderCallback(char* buffer, size_t size, size_t nitems, void* userdata) {
+    size_t total = size * nitems;
+    auto* capture = static_cast<RetryAfterCapture*>(userdata);
+    std::string header(buffer, total);
+
+    // Case-insensitive prefix match for "retry-after:"
+    if (header.size() > 12) {
+        std::string lower = header.substr(0, 12);
+        for (auto& c : lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (lower == "retry-after:") {
+            std::string value = header.substr(12);
+            // Trim whitespace
+            auto start = value.find_first_not_of(" \t");
+            if (start != std::string::npos) {
+                value = value.substr(start);
+            }
+            try {
+                capture->retry_after_seconds = std::stoi(value);
+            } catch (...) {
+                // Non-numeric Retry-After (e.g. HTTP-date) — ignore
+            }
+        }
+    }
+    return total;
 }
 
 // Serialize Message vector to OpenAI wire format
@@ -88,7 +124,7 @@ OpenAIProvider::OpenAIProvider(const std::string& api_key,
     logger_->info("OpenAIProvider initialized with base_url: {}", base_url_);
 }
 
-ChatCompletionResponse OpenAIProvider::chat_completion(const ChatCompletionRequest& request) {
+ChatCompletionResponse OpenAIProvider::ChatCompletion(const ChatCompletionRequest& request) {
     // Build JSON payload
     nlohmann::json payload;
     payload["model"] = request.model;
@@ -109,7 +145,7 @@ ChatCompletionResponse OpenAIProvider::chat_completion(const ChatCompletionReque
     std::string json_payload = payload.dump();
     logger_->debug("Sending request to OpenAI API: {}", json_payload);
     
-    std::string response = make_api_request(json_payload);
+    std::string response = MakeApiRequest(json_payload);
     logger_->debug("Received response from OpenAI API: {}", response);
     
     // Parse response
@@ -146,59 +182,76 @@ ChatCompletionResponse OpenAIProvider::chat_completion(const ChatCompletionReque
     return result;
 }
 
-std::string OpenAIProvider::get_provider_name() const {
+std::string OpenAIProvider::GetProviderName() const {
     return "openai";
 }
 
-std::string OpenAIProvider::make_api_request(const std::string& json_payload) const {
-    CURL* curl;
-    CURLcode res;
+std::string OpenAIProvider::MakeApiRequest(
+    const std::string& json_payload) const {
     std::string read_buffer;
-    
-    curl = curl_easy_init();
-    if (!curl) {
-        throw std::runtime_error("Failed to initialize CURL");
-    }
-    
-    // Set URL
+    RetryAfterCapture retry_capture;
+
+    CurlHandle curl;
+    CurlSlist headers = CreateHeaders();
+
     std::string url = base_url_ + "/chat/completions";
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-    
-    // Set headers
-    struct curl_slist* headers = create_headers();
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-    
-    // Set POST data
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers.get());
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json_payload.c_str());
-    
-    // Set write callback
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &read_buffer);
-    
-    // Set timeout
+    curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, HeaderCallback);
+    curl_easy_setopt(curl, CURLOPT_HEADERDATA, &retry_capture);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout_);
-    
-    // Perform request
-    res = curl_easy_perform(curl);
-    
-    // Cleanup
-    curl_slist_free_all(headers);
-    curl_easy_cleanup(curl);
-    
+
+    CURLcode res = curl_easy_perform(curl);
     if (res != CURLE_OK) {
-        throw std::runtime_error("CURL request failed: " + std::string(curl_easy_strerror(res)));
+        // Map CURL errors to ProviderError
+        ProviderErrorKind kind = ProviderErrorKind::kUnknown;
+        if (res == CURLE_OPERATION_TIMEDOUT) {
+            kind = ProviderErrorKind::kTimeout;
+        } else if (res == CURLE_COULDNT_CONNECT ||
+                   res == CURLE_COULDNT_RESOLVE_HOST) {
+            kind = ProviderErrorKind::kTransient;
+        }
+        throw ProviderError(kind, 0,
+                            "CURL request failed: " +
+                            std::string(curl_easy_strerror(res)),
+                            "openai");
     }
-    
+
+    // Check HTTP status code
+    long http_code = 0;
+    curl_easy_getinfo(curl.get(), CURLINFO_RESPONSE_CODE, &http_code);
+
+    if (http_code >= 400) {
+        auto error_kind = ClassifyHttpError(
+            static_cast<int>(http_code), read_buffer);
+        if (retry_capture.retry_after_seconds > 0) {
+            logger_->warn("OpenAI API HTTP {}: rate limited, retry-after={}s",
+                http_code, retry_capture.retry_after_seconds);
+        } else {
+            logger_->error("OpenAI API HTTP {}: {}", http_code,
+                read_buffer.substr(0, 256));
+        }
+        ProviderError err(error_kind, static_cast<int>(http_code),
+                          "OpenAI API error (HTTP " +
+                          std::to_string(http_code) + "): " + read_buffer,
+                          "openai");
+        err.SetRetryAfterSeconds(retry_capture.retry_after_seconds);
+        throw err;
+    }
+
     return read_buffer;
 }
 
-struct curl_slist* OpenAIProvider::create_headers() const {
-    struct curl_slist* headers = nullptr;
-    headers = curl_slist_append(headers, "Content-Type: application/json");
-    
+CurlSlist OpenAIProvider::CreateHeaders() const {
+    CurlSlist headers;
+    headers.append("Content-Type: application/json");
+
     std::string auth_header = "Authorization: Bearer " + api_key_;
-    headers = curl_slist_append(headers, auth_header.c_str());
-    
+    headers.append(auth_header.c_str());
+
     return headers;
 }
 
@@ -327,7 +380,7 @@ static size_t StreamWriteCallback(void* contents, size_t size, size_t nmemb, voi
     return total;
 }
 
-void OpenAIProvider::chat_completion_stream(const ChatCompletionRequest& request,
+void OpenAIProvider::ChatCompletionStream(const ChatCompletionRequest& request,
                                            std::function<void(const ChatCompletionResponse&)> callback) {
     // Build JSON payload with stream=true
     nlohmann::json payload;
@@ -352,36 +405,61 @@ void OpenAIProvider::chat_completion_stream(const ChatCompletionRequest& request
     stream_ctx.callback = callback;
     stream_ctx.logger = logger_;
 
-    CURL* curl = curl_easy_init();
-    if (!curl) {
-        throw std::runtime_error("Failed to initialize CURL for streaming");
-    }
+    RetryAfterCapture retry_capture;
+
+    CurlHandle curl;
+    CurlSlist headers = CreateHeaders();
 
     std::string url = base_url_ + "/chat/completions";
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-
-    struct curl_slist* headers = create_headers();
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers.get());
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json_payload.c_str());
-
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, StreamWriteCallback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &stream_ctx);
+    curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, HeaderCallback);
+    curl_easy_setopt(curl, CURLOPT_HEADERDATA, &retry_capture);
 
     // For streaming: no hard timeout, use low-speed detection instead
     curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 1L);
     curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, 60L);
 
     CURLcode res = curl_easy_perform(curl);
-
-    curl_slist_free_all(headers);
-    curl_easy_cleanup(curl);
-
     if (res != CURLE_OK) {
-        throw std::runtime_error("CURL streaming request failed: " + std::string(curl_easy_strerror(res)));
+        ProviderErrorKind kind = ProviderErrorKind::kUnknown;
+        if (res == CURLE_OPERATION_TIMEDOUT) {
+            kind = ProviderErrorKind::kTimeout;
+        } else if (res == CURLE_COULDNT_CONNECT ||
+                   res == CURLE_COULDNT_RESOLVE_HOST) {
+            kind = ProviderErrorKind::kTransient;
+        }
+        throw ProviderError(kind, 0,
+                            "CURL streaming request failed: " +
+                            std::string(curl_easy_strerror(res)),
+                            "openai");
+    }
+
+    // Check HTTP status code for streaming requests too
+    long http_code = 0;
+    curl_easy_getinfo(curl.get(), CURLINFO_RESPONSE_CODE, &http_code);
+
+    if (http_code >= 400) {
+        auto error_kind = ClassifyHttpError(static_cast<int>(http_code), "");
+        if (retry_capture.retry_after_seconds > 0) {
+            logger_->warn("OpenAI streaming HTTP {}: rate limited, retry-after={}s",
+                http_code, retry_capture.retry_after_seconds);
+        } else {
+            logger_->error("OpenAI streaming HTTP {}", http_code);
+        }
+        ProviderError err(error_kind, static_cast<int>(http_code),
+                          "OpenAI streaming API error (HTTP " +
+                          std::to_string(http_code) + ")",
+                          "openai");
+        err.SetRetryAfterSeconds(retry_capture.retry_after_seconds);
+        throw err;
     }
 }
 
-std::vector<std::string> OpenAIProvider::get_supported_models() const {
+std::vector<std::string> OpenAIProvider::GetSupportedModels() const {
     return {"gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"};
 }
 

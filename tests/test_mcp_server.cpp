@@ -1,3 +1,6 @@
+// Copyright 2025 QuantClaw Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 #include <gtest/gtest.h>
 #include <memory>
 #include "quantclaw/mcp/mcp_server.hpp"
@@ -7,7 +10,7 @@
 class TestMCPTool : public quantclaw::mcp::MCPTool {
 public:
     TestMCPTool() : MCPTool("test_tool", "A test tool for testing") {
-        add_parameter("input", "string", "Input string", true);
+        AddParameter("input", "string", "Input string", true);
     }
 
 private:
@@ -24,7 +27,7 @@ protected:
         logger_ = std::make_shared<spdlog::logger>("test", null_sink);
 
         server_ = std::make_unique<quantclaw::mcp::MCPServer>(logger_);
-        server_->register_tool(std::make_unique<TestMCPTool>());
+        server_->RegisterTool(std::make_unique<TestMCPTool>());
     }
 
     std::shared_ptr<spdlog::logger> logger_;
@@ -39,21 +42,21 @@ TEST_F(MCPServerTest, Initialize) {
         {"params", {}}
     };
 
-    auto response = server_->handle_request(request);
+    auto response = server_->HandleRequest(request);
 
     EXPECT_EQ(response["id"], 1);
-    EXPECT_EQ(response["result"]["protocol_version"], "2024-11-15");
+    EXPECT_EQ(response["result"]["protocolVersion"], "2024-11-05");
 }
 
 TEST_F(MCPServerTest, ListTools) {
     nlohmann::json request = {
         {"jsonrpc", "2.0"},
         {"id", 2},
-        {"method", "list_tools"},
+        {"method", "tools/list"},
         {"params", {}}
     };
 
-    auto response = server_->handle_request(request);
+    auto response = server_->HandleRequest(request);
 
     EXPECT_EQ(response["id"], 2);
     auto tools = response["result"]["tools"];
@@ -65,18 +68,71 @@ TEST_F(MCPServerTest, CallTool) {
     nlohmann::json request = {
         {"jsonrpc", "2.0"},
         {"id", 3},
-        {"method", "call_tool"},
+        {"method", "tools/call"},
         {"params", {
             {"name", "test_tool"},
             {"arguments", {{"input", "hello"}}}
         }}
     };
 
-    auto response = server_->handle_request(request);
+    auto response = server_->HandleRequest(request);
 
     EXPECT_EQ(response["id"], 3);
     auto content = response["result"]["content"];
     EXPECT_EQ(content[0]["text"], "Processed: hello");
+}
+
+// --- Backward compatibility: old method names still work ---
+
+TEST_F(MCPServerTest, ListToolsLegacyName) {
+    nlohmann::json request = {
+        {"jsonrpc", "2.0"},
+        {"id", 10},
+        {"method", "list_tools"},
+        {"params", {}}
+    };
+
+    auto response = server_->HandleRequest(request);
+
+    EXPECT_EQ(response["id"], 10);
+    EXPECT_TRUE(response.contains("result"));
+    EXPECT_EQ(response["result"]["tools"].size(), 1u);
+}
+
+TEST_F(MCPServerTest, CallToolLegacyName) {
+    nlohmann::json request = {
+        {"jsonrpc", "2.0"},
+        {"id", 11},
+        {"method", "call_tool"},
+        {"params", {
+            {"name", "test_tool"},
+            {"arguments", {{"input", "legacy"}}}
+        }}
+    };
+
+    auto response = server_->HandleRequest(request);
+
+    EXPECT_EQ(response["id"], 11);
+    EXPECT_EQ(response["result"]["content"][0]["text"], "Processed: legacy");
+}
+
+// --- Tool schema uses inputSchema per MCP spec ---
+
+TEST_F(MCPServerTest, ToolSchemaUsesInputSchema) {
+    nlohmann::json request = {
+        {"jsonrpc", "2.0"},
+        {"id", 12},
+        {"method", "tools/list"},
+        {"params", {}}
+    };
+
+    auto response = server_->HandleRequest(request);
+    auto& tool = response["result"]["tools"][0];
+
+    EXPECT_TRUE(tool.contains("inputSchema"));
+    EXPECT_FALSE(tool.contains("parameters"));
+    EXPECT_EQ(tool["inputSchema"]["type"], "object");
+    EXPECT_TRUE(tool["inputSchema"]["properties"].contains("input"));
 }
 
 TEST_F(MCPServerTest, UnknownMethod) {
@@ -87,7 +143,7 @@ TEST_F(MCPServerTest, UnknownMethod) {
         {"params", {}}
     };
 
-    auto response = server_->handle_request(request);
+    auto response = server_->HandleRequest(request);
 
     EXPECT_EQ(response["id"], 4);
     EXPECT_TRUE(response.contains("error"));

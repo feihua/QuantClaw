@@ -1,3 +1,6 @@
+// Copyright 2025 QuantClaw Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 #include <gtest/gtest.h>
 #include <memory>
 #include <filesystem>
@@ -6,6 +9,7 @@
 #include "quantclaw/tools/tool_registry.hpp"
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/null_sink.h>
+#include "test_helpers.hpp"
 
 // Simple MCP tool backed by ToolRegistry
 class RegistryBackedTool : public quantclaw::mcp::MCPTool {
@@ -16,7 +20,7 @@ public:
 
 private:
     std::string execute(const nlohmann::json& arguments) override {
-        return registry_->execute_tool(get_name(), arguments);
+        return registry_->ExecuteTool(GetName(), arguments);
     }
     quantclaw::ToolRegistry* registry_;
 };
@@ -24,21 +28,20 @@ private:
 class MCPIntegrationTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        test_dir_ = std::filesystem::temp_directory_path() / "quantclaw_mcp_integ_test";
-        std::filesystem::create_directories(test_dir_);
+        test_dir_ = quantclaw::test::MakeTestDir("quantclaw_mcp_integ_test");
 
         auto null_sink = std::make_shared<spdlog::sinks::null_sink_mt>();
         logger_ = std::make_shared<spdlog::logger>("test", null_sink);
 
         tool_registry_ = std::make_unique<quantclaw::ToolRegistry>(logger_);
-        tool_registry_->register_builtin_tools();
+        tool_registry_->RegisterBuiltinTools();
 
         mcp_server_ = std::make_unique<quantclaw::mcp::MCPServer>(logger_);
 
         // Register tools from tool registry into MCP server
-        auto schemas = tool_registry_->get_tool_schemas();
+        auto schemas = tool_registry_->GetToolSchemas();
         for (const auto& schema : schemas) {
-            mcp_server_->register_tool(
+            mcp_server_->RegisterTool(
                 std::make_unique<RegistryBackedTool>(schema.name, schema.description, tool_registry_.get()));
         }
     }
@@ -58,15 +61,15 @@ protected:
 TEST_F(MCPIntegrationTest, ListTools) {
     nlohmann::json request = {
         {"jsonrpc", "2.0"},
-        {"method", "list_tools"},
+        {"method", "tools/list"},
         {"id", 1}
     };
 
-    auto response = mcp_server_->handle_request(request);
+    auto response = mcp_server_->HandleRequest(request);
 
     EXPECT_TRUE(response.contains("result"));
     EXPECT_TRUE(response["result"].contains("tools"));
-    EXPECT_EQ(response["result"]["tools"].size(), 5u); // read, write, edit, exec, message
+    EXPECT_EQ(response["result"]["tools"].size(), 12u); // read, write, edit, exec, bash, apply_patch, process, message, web_search, web_fetch, memory_search, memory_get
 }
 
 TEST_F(MCPIntegrationTest, CallReadFileTool) {
@@ -77,7 +80,7 @@ TEST_F(MCPIntegrationTest, CallReadFileTool) {
 
     nlohmann::json request = {
         {"jsonrpc", "2.0"},
-        {"method", "call_tool"},
+        {"method", "tools/call"},
         {"params", {
             {"name", "read"},
             {"arguments", {{"path", test_file.string()}}}
@@ -85,7 +88,7 @@ TEST_F(MCPIntegrationTest, CallReadFileTool) {
         {"id", 2}
     };
 
-    auto response = mcp_server_->handle_request(request);
+    auto response = mcp_server_->HandleRequest(request);
 
     EXPECT_TRUE(response.contains("result"));
     EXPECT_TRUE(response["result"].contains("content"));
@@ -97,7 +100,7 @@ TEST_F(MCPIntegrationTest, CallWriteFileTool) {
 
     nlohmann::json request = {
         {"jsonrpc", "2.0"},
-        {"method", "call_tool"},
+        {"method", "tools/call"},
         {"params", {
             {"name", "write"},
             {"arguments", {
@@ -108,7 +111,7 @@ TEST_F(MCPIntegrationTest, CallWriteFileTool) {
         {"id", 3}
     };
 
-    auto response = mcp_server_->handle_request(request);
+    auto response = mcp_server_->HandleRequest(request);
 
     EXPECT_TRUE(response.contains("result"));
 
@@ -121,7 +124,7 @@ TEST_F(MCPIntegrationTest, CallWriteFileTool) {
 TEST_F(MCPIntegrationTest, ToolNotFound) {
     nlohmann::json request = {
         {"jsonrpc", "2.0"},
-        {"method", "call_tool"},
+        {"method", "tools/call"},
         {"params", {
             {"name", "nonexistent_tool"},
             {"arguments", nlohmann::json::object()}
@@ -129,7 +132,7 @@ TEST_F(MCPIntegrationTest, ToolNotFound) {
         {"id", 4}
     };
 
-    auto response = mcp_server_->handle_request(request);
+    auto response = mcp_server_->HandleRequest(request);
 
     EXPECT_TRUE(response.contains("error"));
 }

@@ -1,47 +1,38 @@
+// Copyright 2025 QuantClaw Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 #pragma once
 
-#include <string>
 #include <memory>
-#include <filesystem>
+#include <string>
 #include <spdlog/spdlog.h>
+#include "quantclaw/platform/service.hpp"
+#include "quantclaw/constants.hpp"
 
 namespace quantclaw::gateway {
 
+// Manages the QuantClaw gateway as a platform service.
+// Linux: systemd user service. Windows: background process with PID file.
+// Thin wrapper around platform::ServiceManager.
 class DaemonManager {
-public:
-    explicit DaemonManager(std::shared_ptr<spdlog::logger> logger);
+ public:
+  explicit DaemonManager(std::shared_ptr<spdlog::logger> logger);
 
-    // Service lifecycle
-    int install(int port = 18789);
-    int uninstall();
-    int start();
-    int stop();
-    int restart();
-    int status();
+  int Install(int port = kLegacyGatewayPort);
+  int Uninstall();
+  int Start();
+  int Stop();
+  int Restart();
+  int Status();
 
-    // PID file management
-    bool is_running() const;
-    int get_pid() const;
+  bool IsRunning() const;
+  int GetPid() const;
 
-private:
-    std::shared_ptr<spdlog::logger> logger_;
-    std::filesystem::path home_dir_;
-    std::filesystem::path pid_file_;
-    std::filesystem::path log_file_;
+  void WritePid(int pid);
+  void RemovePid();
 
-    // Platform-specific implementations
-    int install_systemd(int port);
-    int install_launchd(int port);
-    int start_systemd();
-    int start_launchd();
-    int stop_systemd();
-    int stop_launchd();
-    int status_systemd();
-    int status_launchd();
-
-    void write_pid(int pid);
-    void remove_pid();
-    std::string get_executable_path() const;
+ private:
+  platform::ServiceManager service_;
 };
 
-} // namespace quantclaw::gateway
+}  // namespace quantclaw::gateway

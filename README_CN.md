@@ -23,13 +23,19 @@ QuantClaw 是 [OpenClaw](https://github.com/openclaw/openclaw) 生态的 C++ 原
 - **OpenClaw 兼容**：兼容 OpenClaw 工作空间文件、技能和配置格式
 - **双协议接入**：WebSocket RPC 网关 + HTTP REST API
 - **多模型支持**：OpenAI 兼容接口和 Anthropic API，通过 `provider/model` 前缀路由
+- **模型故障转移**：多 API Key 轮换 + 指数退避冷却 + 自动模型回退链
+- **命令队列**：per-session 串行保证，支持 collect/followup/steer/interrupt 模式和全局并发控制
+- **上下文治理**：自动压缩、工具结果裁剪、BM25 记忆搜索
 - **频道适配器**：接入 Discord、Telegram 或自定义机器人
 - **会话持久化**：完整对话历史（含工具调用上下文）以 JSONL 格式保存
-- **技能系统**：兼容 OpenClaw SKILL.md 格式
+- **技能系统**：兼容 OpenClaw SKILL.md 格式（同时支持 OpenClaw 和 QuantClaw 两种清单格式）
+- **插件生态**：通过 Node.js Sidecar 完全兼容 OpenClaw 插件——工具、钩子、服务、Provider、命令、HTTP 路由、网关方法
 - **MCP 支持**：Model Context Protocol，接入外部工具服务器
 - **文件系统优先**：无数据库依赖，所有数据存储在工作空间目录
 
 ## 快速开始
+
+### 1. 编译 QuantClaw
 
 ```bash
 git clone https://github.com/QuantClaw/QuantClaw.git
@@ -43,6 +49,69 @@ make -j$(nproc)
 
 # 安装（可选）
 sudo make install
+```
+
+### 2. 运行 Onboarding 向导
+
+```bash
+# 交互式设置向导（推荐）
+quantclaw onboard
+
+# 或自动安装守护进程
+quantclaw onboard --install-daemon
+
+# 或快速设置（无提示）
+quantclaw onboard --quick
+```
+
+Onboarding 向导会引导你完成：
+- 配置设置（网关端口、AI 模型等）
+- 工作空间创建（SOUL.md、技能目录等）
+- 可选的系统服务守护进程安装
+- 技能初始化
+- 设置验证
+
+### 3. 启动网关
+
+```bash
+# 如果已安装为服务
+quantclaw gateway start
+
+# 或前台运行
+quantclaw gateway
+```
+
+### 4. 打开仪表板
+
+```bash
+quantclaw dashboard
+```
+
+这会在 `http://127.0.0.1:18801` 打开 Web UI
+
+## 端口配置
+
+QuantClaw 使用专属端口范围以避免与 OpenClaw 和其他服务冲突：
+
+| 服务 | 端口 | 用途 |
+|------|------|------|
+| WebSocket RPC 网关 | `18800` | 主网关，客户端连接入口 |
+| HTTP REST API / 仪表板 | `18801` | 控制面板和 REST API |
+| Sidecar IPC (TCP loopback) | `18802-18899` | Node.js Sidecar 进程通信 |
+
+**注意**：QuantClaw 使用端口 `18800-18801`（不同于 OpenClaw 的 `18789-18790`），允许两者同时运行。
+
+要使用自定义端口，编辑 `~/.quantclaw/quantclaw.json`：
+
+```json
+{
+  "gateway": {
+    "port": 18800,
+    "controlUi": {
+      "port": 18801
+    }
+  }
+}
 ```
 
 ## 架构
@@ -71,11 +140,14 @@ sudo make install
 
 ```json
 {
-  "llm": {
+  "agent": {
     "model": "openai/qwen-max",
     "maxIterations": 15,
     "temperature": 0.7,
-    "maxTokens": 4096
+    "maxTokens": 4096,
+    "fallbacks": ["anthropic/claude-sonnet-4-6"],
+    "autoCompact": true,
+    "compactMaxMessages": 100
   },
   "providers": {
     "openai": {
@@ -83,11 +155,16 @@ sudo make install
       "baseUrl": "https://api.openai.com/v1"
     }
   },
+  "queue": {
+    "maxConcurrent": 4,
+    "debounceMs": 1000,
+    "defaultMode": "collect"
+  },
   "gateway": {
-    "port": 18789,
+    "port": 18800,
     "bind": "loopback",
     "auth": { "mode": "token", "token": "YOUR_SECRET_TOKEN" },
-    "controlUi": { "enabled": true, "port": 18790 }
+    "controlUi": { "enabled": true, "port": 18801 }
   },
   "channels": {
     "discord": { "enabled": false, "token": "YOUR_DISCORD_TOKEN" },
@@ -97,6 +174,11 @@ sudo make install
     "allow": ["group:fs", "group:runtime"],
     "deny": []
   },
+  "system": {
+    "logLevel": "info",
+    "logRetentionDays": 7,
+    "logMaxSizeMb": 50
+  },
   "security": {
     "sandbox": { "enabled": true }
   }
@@ -105,12 +187,23 @@ sudo make install
 
 `model` 字段使用 `provider/model-name` 前缀路由。不带前缀时默认走 `openai`。任何兼容 OpenAI Chat Completion 格式的 API 都可以通过修改 `baseUrl` 接入（通义千问、DeepSeek、本地 Ollama 等）。
 
+### 日志保存策略
+
+QuantClaw 在每次网关启动时自动清理过期日志，防止磁盘被撑爆。
+
+| 配置项 | 键名 | 默认值 | 说明 |
+|--------|------|--------|------|
+| 保存天数 | `system.logRetentionDays` | `7` | 删除超过 N 天的 `.log` 文件。设为 `0` 表示永久保留。 |
+| 总容量上限 | `system.logMaxSizeMb` | `50` | 日志文件总占用上限（MiB），均分为 5 个轮转文件（每个约 10 MiB）。 |
+
+日志保存在 `~/.quantclaw/logs/`。主日志（`quantclaw.log`）由 spdlog 按大小自动轮转；网关服务日志（`gateway.log`，由 systemd 写入）则在每次启动时按时间清理。
+
 完整配置示例见 `config.example.json`。
 
 ### 依赖
 
 **系统包（需手动安装）**：
-- C++17 编译器（GCC 7+、Clang 5+、MSVC 19.14+）
+- C++17 编译器（GCC 7+ 或 Clang 5+）
 - spdlog — 日志
 - nlohmann/json — JSON 库
 - libcurl — HTTP 客户端
@@ -130,6 +223,27 @@ sudo apt install build-essential cmake libssl-dev \
 
 ## 使用
 
+### Onboarding 向导
+
+最简单的入门方式是交互式 Onboarding 向导：
+
+```bash
+# 运行完整向导
+quantclaw onboard
+
+# 自动安装守护进程
+quantclaw onboard --install-daemon
+
+# 快速设置（无交互）
+quantclaw onboard --quick
+```
+
+向导会创建：
+- 配置文件（`~/.quantclaw/quantclaw.json`）
+- 工作空间目录（`~/.quantclaw/agents/main/workspace/`）
+- SOUL.md（助手身份文件）
+- 可选的 systemd 服务用于守护进程模式
+
 ### 网关（后台服务）
 
 ```bash
@@ -139,6 +253,9 @@ quantclaw gateway
 # 安装为系统服务（systemd / launchd）
 quantclaw gateway install
 
+# 卸载系统服务
+quantclaw gateway uninstall
+
 # 启动 / 停止 / 重启
 quantclaw gateway start
 quantclaw gateway stop
@@ -146,6 +263,9 @@ quantclaw gateway restart
 
 # 查看状态
 quantclaw gateway status
+
+# 直接调用任意 RPC 方法
+quantclaw gateway call gateway.health
 ```
 
 ### 与 AI 对话
@@ -167,14 +287,100 @@ quantclaw sessions delete <session-key>
 quantclaw sessions reset <session-key>
 ```
 
+### 配置管理
+
+```bash
+quantclaw config get                    # 查看完整配置
+quantclaw config get agent.model        # 查看指定配置项（点路径）
+quantclaw config set agent.model "anthropic/claude-sonnet-4-6"  # 修改配置值
+quantclaw config unset agent.temperature                        # 删除某个配置键
+quantclaw config reload                 # 热重载配置（无需重启网关）
+```
+
+### 技能管理
+
+```bash
+quantclaw skills list              # 列出已加载技能
+quantclaw skills install <name>    # 安装技能依赖
+```
+
+### 记忆搜索
+
+```bash
+quantclaw memory search "<查询内容>"  # 在工作空间记忆文件中进行 BM25 搜索
+quantclaw memory status              # 显示记忆索引统计信息
+```
+
+### 定时任务
+
+```bash
+quantclaw cron list                            # 列出定时任务
+quantclaw cron add <name> <schedule> <task>    # 添加定时任务（cron 表达式）
+quantclaw cron remove <id>                     # 按 ID 删除任务
+```
+
 ### 其他命令
 
 ```bash
 quantclaw health          # 健康检查
-quantclaw config get      # 查看配置
-quantclaw skills list     # 列出已加载技能
+quantclaw logs            # 实时查看网关日志
 quantclaw doctor          # 诊断检查
+quantclaw dashboard       # 在浏览器中打开 Web UI
 ```
+
+### 对话内消息指令
+
+与 AI 对话时，发送以斜杠开头的消息即可控制当前会话：
+
+| 指令 | 效果 |
+|------|------|
+| `/new` | 开启新会话 |
+| `/reset` | 清空当前会话历史 |
+| `/compact` | 手动触发上下文压缩 |
+| `/status` | 显示当前会话和队列状态 |
+| `/commands` | 列出所有可用斜杠指令 |
+| `/help` | 显示帮助信息 |
+
+## 技能系统
+
+技能通过将上下文指令和工具注入系统提示来扩展 Agent 的能力。每个技能是一个包含 `SKILL.md` 文件的目录。
+
+### 内置技能
+
+| 技能 | 描述 | 始终激活 |
+|------|------|----------|
+| 🌦️ `weather` | 通过 wttr.in 查询当前天气 | 是 |
+| 🐙 `github` | 使用 `gh` CLI 与 GitHub 交互 | 否（需要 `gh`）|
+| 🏥 `healthcheck` | 系统健康审计与诊断 | 是 |
+| 🎨 `skill-creator` | 新技能创建向导 | 是 |
+
+### 创建自定义技能
+
+将技能目录放在 `~/.quantclaw/agents/main/workspace/skills/` 或全局技能路径下：
+
+```yaml
+# skills/my-skill/SKILL.md
+---
+name: my-skill
+emoji: "🔧"
+description: 技能描述
+requires:
+  bins:
+    - required-binary    # 技能激活所需的二进制工具
+  env:
+    - REQUIRED_ENV_VAR
+always: false            # true = 始终注入；false = 按需激活
+metadata:
+  openclaw:
+    install:
+      apt: package-name  # 通过 `skills install` 自动安装
+      node: npm-package
+---
+
+此处的 Markdown 说明会在技能激活时注入到 Agent 的系统提示中。
+```
+
+技能格式与 OpenClaw SKILL.md 格式完全兼容。
 
 ## 频道适配器
 
@@ -204,41 +410,61 @@ QuantClaw 通过频道适配器接入外部消息平台。适配器是独立的 
 
 ## HTTP REST API
 
-网关运行后，HTTP API 在 `http://localhost:18790` 可用：
+网关运行后，HTTP API 在 `http://localhost:18801` 可用：
 
 ```bash
 # 健康检查
-curl http://localhost:18790/api/health
+curl http://localhost:18801/api/health
 
 # 网关状态
-curl http://localhost:18790/api/status
+curl http://localhost:18801/api/status
 
 # 发送消息（非流式）
-curl -X POST http://localhost:18790/api/agent/request \
+curl -X POST http://localhost:18801/api/agent/request \
   -H "Content-Type: application/json" \
   -d '{"message": "你好！", "sessionKey": "my:session"}'
 
 # 列出会话
-curl http://localhost:18790/api/sessions?limit=10
+curl http://localhost:18801/api/sessions?limit=10
 
 # 查看会话历史
-curl "http://localhost:18790/api/sessions/history?sessionKey=my:session"
+curl "http://localhost:18801/api/sessions/history?sessionKey=my:session"
 ```
 
 启用认证时，需添加 `Authorization` 头：
 ```bash
-curl -H "Authorization: Bearer YOUR_TOKEN" http://localhost:18790/api/status
+curl -H "Authorization: Bearer YOUR_TOKEN" http://localhost:18801/api/status
+```
+
+### 插件 API 接口
+
+```bash
+# 列出已加载插件
+curl http://localhost:18801/api/plugins
+
+# 获取插件工具 Schema
+curl http://localhost:18801/api/plugins/tools
+
+# 调用插件工具
+curl -X POST http://localhost:18801/api/plugins/tools/my-tool \
+  -H "Content-Type: application/json" \
+  -d '{"arg1": "value"}'
+
+# 列出插件服务 / Provider / 命令
+curl http://localhost:18801/api/plugins/services
+curl http://localhost:18801/api/plugins/providers
+curl http://localhost:18801/api/plugins/commands
 ```
 
 ## WebSocket RPC 协议（OpenClaw 兼容）
 
-网关在端口 18789 暴露 WebSocket RPC 接口：
+网关在端口 18800 暴露 WebSocket RPC 接口：
 
 1. 客户端连接 → 服务端发送 `connect.challenge`（含 nonce）
 2. 客户端回复 `connect.hello`（含认证 token）
 3. 客户端发送 JSON-RPC 请求 → 服务端返回结果
 
-**可用 RPC 方法**：`gateway.health`、`gateway.status`、`config.get`、`agent.request`、`agent.stop`、`sessions.list`、`sessions.history`、`sessions.delete`、`sessions.reset`、`channels.list`、`chain.execute`
+**可用 RPC 方法**：`gateway.health`、`gateway.status`、`config.get`、`agent.request`、`agent.stop`、`sessions.list`、`sessions.history`、`sessions.delete`、`sessions.reset`、`channels.list`、`chain.execute`、`plugins.list`、`plugins.tools`、`plugins.call_tool`、`plugins.services`、`plugins.providers`、`plugins.commands`、`plugins.gateway`、`queue.status`、`queue.configure`、`queue.cancel`、`queue.abort`
 
 流式响应会实时推送事件：`text_delta`、`tool_use`、`tool_result`、`message_end`。
 
@@ -247,26 +473,219 @@ curl -H "Authorization: Bearer YOUR_TOKEN" http://localhost:18790/api/status
 ## Docker 部署
 
 ```bash
-# 一键启动
-docker compose up -d
+# 一键启动（Docker 文件位于 scripts/ 目录）
+docker compose -f scripts/docker-compose.yml up -d
 
 # 或手动构建
-docker build -t quantclaw .
+docker build -f scripts/Dockerfile -t quantclaw .
 docker run -d \
-  -p 18789:18789 \
+  -p 18800:18800 \
+  -p 18801:18801 \
   -e OPENAI_API_KEY=your-key \
   -v quantclaw_data:/home/quantclaw/.quantclaw \
   quantclaw
 ```
 
-Docker 镜像使用多阶段构建（基于 Ubuntu 22.04），以非 root 用户运行。配置数据通过 `/home/quantclaw/.quantclaw` 卷持久化。
+Docker 镜像使用多阶段构建（基于 Ubuntu 22.04），以非 root 用户运行。配置数据通过 `/home/quantclaw/.quantclaw` 卷持久化。Docker 文件位于 `scripts/` 目录。
 
-## 兼容性
+## 测试
 
-- **工作空间文件**：兼容 OpenClaw（`SOUL.md`、`USER.md`、`MEMORY.md`）
-- **技能系统**：使用 OpenClaw SKILL.md 格式
-- **配置格式**：JSON 格式，兼容 OpenClaw 生态
-- **协议**：WebSocket RPC，`connect` + `chat.send` 流程，可与 OpenClaw 客户端互通
+### 单元测试
+
+```bash
+cd build
+./quantclaw_tests
+# 或
+ctest --output-on-failure
+```
+
+### 集成冒烟测试
+
+冒烟测试会启动一个真实的网关进程，测试 HTTP REST、WebSocket RPC 和并发连接——无需 API Key：
+
+```bash
+bash tests/smoke_test.sh
+```
+
+提供 API Key 时，还会运行 Agent 对话测试：
+
+```bash
+OPENAI_API_KEY=sk-... bash tests/smoke_test.sh
+```
+
+测试覆盖：生命周期（健康检查/状态/认证）、配置 RPC、会话 RPC、插件 RPC、技能/定时任务/记忆/队列/频道状态、10 个并发 WebSocket 连接、优雅关闭。日志保存在 `/tmp/quantclaw-smoke-ci/gateway.log`。
+
+### 手动 LLM 测试
+
+```bash
+# 启动网关
+quantclaw gateway
+
+# 非流式 Agent 请求
+curl -X POST http://localhost:18801/api/agent/request \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "你好！", "sessionKey": "test:manual"}'
+
+# OpenAI 兼容 Chat Completion
+curl -X POST http://localhost:18801/v1/chat/completions \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "openai/qwen-max", "messages": [{"role": "user", "content": "你好"}]}'
+```
+
+## 插件生态
+
+QuantClaw 通过 Node.js Sidecar 进程运行 OpenClaw TypeScript 插件。C++ 主进程管理 Sidecar 生命周期，通过 **TCP 本地回环（127.0.0.1）** 以 JSON-RPC 2.0 协议通信。
+
+**支持的插件能力**：
+- **工具（Tools）**：插件定义的工具，可被 Agent 调用
+- **钩子（Hooks）**：24 种生命周期钩子（void/modifying/sync 三种模式）
+- **服务（Services）**：后台服务，支持启动/停止管理
+- **Provider**：自定义 LLM Provider
+- **命令（Commands）**：暴露给 Agent 的斜杠命令
+- **HTTP 路由**：通过 `/plugins/*` 暴露插件定义的 HTTP 接口
+- **网关方法**：通过 `plugins.gateway` 暴露插件定义的 RPC 方法
+
+**插件发现**（按优先级排列）：
+1. 配置指定路径（`plugins.load.paths`）
+2. 工作空间插件（`.openclaw/plugins/` 或 `.quantclaw/plugins/`）
+3. 全局插件（`~/.quantclaw/plugins/`）
+4. 内置插件（`~/.quantclaw/bundled-plugins/`）
+
+插件使用 `openclaw.plugin.json` 或 `quantclaw.plugin.json` 清单文件，与 OpenClaw 插件格式兼容。
+
+```json
+{
+  "plugins": {
+    "allow": ["my-plugin"],
+    "deny": [],
+    "entries": {
+      "my-plugin": { "enabled": true, "config": {} }
+    }
+  }
+}
+```
+
+### IPC 通信协议（C++ 主进程 ↔ Node.js Sidecar）
+
+C++ 主进程与 Sidecar 之间的进程间通信（IPC）采用 **TCP 本地回环**，适配 Linux 和 Windows 双平台：
+
+**连接建立**：
+1. C++ 主进程绑定 `127.0.0.1:0`，由操作系统分配空闲端口
+2. 实际端口号通过 `QUANTCLAW_PORT` 环境变量传递给 Sidecar 子进程
+3. Sidecar 用 Node.js 内置 `net.createConnection(port, '127.0.0.1')` 发起连接——无需额外 npm 依赖
+
+**数据包格式（NDJSON）**：
+
+每条消息 = 一个 JSON 对象 + 换行符 `\n`（即 [Newline-Delimited JSON](https://ndjson.org/)）：
+
+```
+{"jsonrpc":"2.0","method":"plugin.tools","params":{},"id":1}\n
+{"jsonrpc":"2.0","result":[...],"id":1}\n
+```
+
+**为何 JSON 对象内部不会出现 `\n` 字符**：
+
+JSON 规范（[RFC 8259 §7](https://www.rfc-editor.org/rfc/rfc8259#section-7)）强制要求字符串中的控制字符（码点 U+0000–U+001F，包含换行符 U+000A）必须转义为 `\n`（反斜杠 + 字母 n，2 字节），而非原始字节 `0x0A`（1 字节）。
+
+因此：
+- C++ 侧：`nlohmann::json::dump()`（无缩进参数）输出紧凑 JSON，所有控制字符自动转义
+- Node.js 侧：`JSON.stringify()`（无缩进参数）同样保证此行为
+
+换行符 `\n`（`0x0A`）**只会**出现在两条消息之间作为帧分隔符，绝不会出现在 JSON 内容中。这与 Redis RESP、Docker Events Stream、OpenAI Streaming 所采用的 NDJSON 实践完全一致。
+
+## OpenClaw 兼容性现状
+
+QuantClaw 目标是完全兼容 [OpenClaw](https://github.com/openclaw/openclaw)（v2026.2）。下表为当前对齐情况：
+
+| 模块 | 状态 | 说明 |
+|------|------|------|
+| 工作空间文件 | **完全** | `SOUL.md`、`USER.md`、`MEMORY.md`、`SKILL.md` |
+| 技能格式 | **完全** | 支持 `metadata.openclaw` 嵌套格式和扁平格式 |
+| 插件钩子（24 种） | **完全** | 所有 hook name 和 mode（void/modifying/sync）对齐 |
+| 插件 Sidecar IPC | **完全** | 工具、钩子、服务、Provider、命令、HTTP 路由、网关方法 |
+| JSONL 会话格式 | **部分** | 基本读写兼容；缺 branching（parentId）、8 种 entry type、write lock |
+| 配置格式 | **部分** | 仅支持 JSON（不支持 JSON5 注释/尾逗号）、无 `$include`、无 `${VAR}` 环境变量替换 |
+| CLI 命令 | **部分** | 核心命令已有；OpenClaw 约 28 个顶级命令尚未实现 |
+| Gateway RPC 协议 | **部分** | 已实现约 30 个 method；OpenClaw 约 85+ 个 method 待补 |
+| Provider 系统 | **部分** | OpenAI + Anthropic + 5 个 OpenAI 兼容；缺 OAuth、GitHub Copilot、Qwen 等 |
+| Agent 循环 | **部分** | 核心循环可用；缺 lane-based queue、auth rotation、overflow compaction |
+| 记忆搜索 | **部分** | 仅 BM25 关键词搜索；缺 hybrid vector search（embedding、SQLite、MMR） |
+| 上下文管理 | **部分** | compaction + pruning 可用；缺 multi-stage summary、budget-based pruning |
+| 频道系统 | **部分** | 外部 subprocess 适配器；无内置 channel、无 7-tier routing |
+| 安全 / 沙箱 | **部分** | RBAC + rate limiter + sandbox；缺 Docker sandbox、security audit |
+| MCP | **部分** | 基础实现；method name 和 transport 正在对齐规范 |
+| Web API | **部分** | 16 个 REST 路由；缺 OpenResponses API、webhook 端点 |
+
+### 与 OpenClaw 的主要差异
+
+| 维度 | OpenClaw | QuantClaw |
+|------|----------|-----------|
+| 默认网关端口 | `18789` | `18800` |
+| 默认 HTTP 端口 | 与网关共用 | `18801`（独立） |
+| 配置格式 | JSON5，支持 `$include` 和 `${VAR}` | 标准 JSON |
+| 默认模型 | `anthropic/claude-sonnet-4-6` | `qwen-max` |
+| 默认 maxTokens | `8192` | `4096` |
+| 认证 profile | 多 profile + OAuth + 轮换 | 每 provider 单 key |
+| 记忆搜索 | Hybrid（向量 0.7 + BM25 0.3） | 仅 BM25 |
+| 插件执行 | 进程内（同一 Node.js） | 进程外（sidecar via TCP） |
+| 频道适配器 | 8 个内置 + 扩展 | 外部 subprocess 脚本 |
+
+### QuantClaw 独有特性
+
+| 特性 | 说明 |
+|------|------|
+| `chain` 元工具 | 声明式多步 tool pipeline，支持 `{{prev.result}}` 模板 |
+| `read`/`write`/`edit` 工具 | 专用文件操作 tool，带 sandbox 验证 |
+| 跨平台 TCP IPC | 统一 Linux/Windows sidecar 通信（无需 Unix socket） |
+| C++ 资源限制沙箱 | `setrlimit`（CPU/内存/文件大小/进程数） |
+| `viewer` RBAC 角色 | 专用只读角色 |
+
+完整差异分析见 [.claude/gap-analysis.md](.claude/gap-analysis.md)。
+
+## 路线图
+
+当前已实现：WebSocket/HTTP 网关、多 Provider LLM 与故障转移、会话持久化、插件生态、频道适配器、MCP 支持、Onboarding 向导，共通过 769 项测试（712 项 C++ + 57 项 Sidecar）。
+
+尚未实现：
+- TUI 交互式终端界面
+- 多 Agent 配置文件支持
+- JSON5 配置（`$include` 和 `${VAR}` 支持）
+- Hybrid 记忆搜索（向量 + BM25）
+- 内置频道适配器（Telegram、Discord、Slack）
+- Docker 沙箱隔离
+- OAuth 认证流程
+
+## 故障排除
+
+**网关无法启动**
+```bash
+quantclaw config get gateway.port   # 检查已配置的端口
+quantclaw doctor                    # 运行诊断
+```
+
+**无法连接到网关**
+```bash
+quantclaw health    # 检查网关是否运行
+quantclaw logs      # 实时查看日志定位错误
+quantclaw status    # 查看连接数和会话数
+```
+
+**API 调用失败**
+- 检查 `~/.quantclaw/quantclaw.json` 中的 LLM API Key 是否有效
+- 如果使用自定义端点，检查 `providers.openai.baseUrl`
+- 运行 `quantclaw doctor` 获取完整诊断报告
+
+**配置修改未生效**
+```bash
+quantclaw config reload   # 热重载配置，无需重启网关
+```
+
+**编译失败**
+- 确认编译器版本：GCC 7+ 或 Clang 5+，需支持 C++17
+- 安装系统依赖：`sudo apt install build-essential cmake libssl-dev libcurl4-openssl-dev nlohmann-json3-dev libspdlog-dev`
+- 查看详细错误：`cmake .. -DCMAKE_VERBOSE_MAKEFILE=ON`
 
 ## 许可证
 
@@ -274,10 +693,34 @@ Apache License 2.0 — 详见 [LICENSE](LICENSE)。
 
 ## 贡献
 
-欢迎贡献！
+欢迎贡献！请在提交前阅读以下指南。
 
-1. Fork 本仓库
-2. 创建功能分支
-3. 提交更改
-4. 推送分支
-5. 发起 Pull Request
+### 工作流程
+
+1. Fork 仓库并本地克隆
+2. 创建功能分支：`git checkout -b feat/my-feature` 或 `fix/issue-123`
+3. 编写代码，并为新功能添加测试
+4. 格式化代码：`./scripts/format-code.sh`（或使用 Docker：`./scripts/format-code-docker.sh`）
+5. 运行测试：`cd build && ctest --output-on-failure`
+6. 提交并推送，然后向 `main` 分支发起 Pull Request
+
+### Commit 消息格式
+
+| 前缀 | 用途 |
+|------|------|
+| `feat:` | 新功能 |
+| `fix:` | Bug 修复 |
+| `docs:` | 文档变更 |
+| `refactor:` | 代码重构 |
+| `test:` | 添加或更新测试 |
+| `chore:` | 构建 / 工具链变更 |
+
+### Pull Request 检查清单
+
+- 所有测试通过（`ctest --output-on-failure`）
+- 代码已用 `clang-format` 格式化（CI 会检查）
+- 无新增编译器警告
+- 如果新增了用户可见的功能，请更新 README
+- 为新功能添加了单元测试
+
+详细说明（含 IDE 配置和构建故障排除）请参阅 [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md)。

@@ -76,8 +76,8 @@ chmod +x /usr/local/bin/quantclaw
 # Create workspace (OpenClaw-compatible layout)
 echo "Creating workspace..."
 USER_HOME=$(eval echo ~$SUDO_USER)
-mkdir -p "$USER_HOME/.quantclaw/agents/default/workspace"
-mkdir -p "$USER_HOME/.quantclaw/agents/default/sessions"
+mkdir -p "$USER_HOME/.quantclaw/agents/main/workspace"
+mkdir -p "$USER_HOME/.quantclaw/agents/main/sessions"
 mkdir -p "$USER_HOME/.quantclaw/logs"
 
 # Create example config (OpenClaw format)
@@ -91,7 +91,7 @@ if [ ! -f "$USER_HOME/.quantclaw/quantclaw.json" ]; then
     "temperature": 0.7
   },
   "gateway": {
-    "port": 18789,
+    "port": 18800,
     "bind": "loopback",
     "auth": { "mode": "token" },
     "controlUi": { "enabled": true }

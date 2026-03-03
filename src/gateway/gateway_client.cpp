@@ -1,3 +1,6 @@
+// Copyright 2025 QuantClaw Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 #include "quantclaw/gateway/gateway_client.hpp"
 #include <chrono>
 #include <sstream>
@@ -11,10 +14,10 @@ GatewayClient::GatewayClient(const std::string& url,
 }
 
 GatewayClient::~GatewayClient() {
-    disconnect();
+    Disconnect();
 }
 
-bool GatewayClient::connect(int timeout_ms) {
+bool GatewayClient::Connect(int timeout_ms) {
     ws_.setUrl(url_);
 
     ws_.setOnMessageCallback([this](const ix::WebSocketMessagePtr& msg) {
@@ -61,7 +64,7 @@ bool GatewayClient::connect(int timeout_ms) {
     return true;
 }
 
-void GatewayClient::disconnect() {
+void GatewayClient::Disconnect() {
     if (connected_) {
         ws_.stop();
         connected_ = false;
@@ -70,11 +73,11 @@ void GatewayClient::disconnect() {
     }
 }
 
-bool GatewayClient::is_connected() const {
+bool GatewayClient::IsConnected() const {
     return connected_;
 }
 
-nlohmann::json GatewayClient::call(const std::string& method,
+nlohmann::json GatewayClient::Call(const std::string& method,
                                     const nlohmann::json& params,
                                     int timeout_ms) {
     if (!connected_) {
@@ -95,7 +98,7 @@ nlohmann::json GatewayClient::call(const std::string& method,
     request.id = req_id;
     request.method = method;
     request.params = params;
-    ws_.send(request.to_json().dump());
+    ws_.send(request.ToJson().dump());
 
     // Wait for response
     {
@@ -122,13 +125,21 @@ nlohmann::json GatewayClient::call(const std::string& method,
 
     auto& resp = *pending->response;
     if (resp.contains("ok") && !resp["ok"].get<bool>()) {
-        throw std::runtime_error("RPC error: " + resp.value("error", "unknown error"));
+        std::string error_msg = "unknown error";
+        if (resp.contains("error")) {
+            if (resp["error"].is_object()) {
+                error_msg = resp["error"].value("message", "unknown error");
+            } else if (resp["error"].is_string()) {
+                error_msg = resp["error"].get<std::string>();
+            }
+        }
+        throw std::runtime_error("RPC error: " + error_msg);
     }
 
     return resp.value("payload", nlohmann::json::object());
 }
 
-void GatewayClient::subscribe(const std::string& event, EventCallback callback) {
+void GatewayClient::Subscribe(const std::string& event, EventCallback callback) {
     std::lock_guard<std::mutex> lock(subs_mutex_);
     subscriptions_[event].push_back(std::move(callback));
 }
@@ -173,20 +184,20 @@ void GatewayClient::handle_frame(const nlohmann::json& frame) {
         auto payload = frame.value("payload", nlohmann::json::object());
 
         // Handle challenge -> send hello
-        if (event_name == events::CONNECT_CHALLENGE) {
+        if (event_name == events::kConnectChallenge) {
             RpcRequest hello;
             hello.id = next_request_id();
-            hello.method = methods::CONNECT_HELLO;
+            hello.method = methods::kConnectHello;
             hello.params = {
                 {"minProtocol", 1},
-                {"maxProtocol", 1},
+                {"maxProtocol", 3},
                 {"clientName", "quantclaw-cli"},
                 {"clientVersion", "0.2.0"},
                 {"role", "operator"},
                 {"scopes", {"operator.read", "operator.write"}},
                 {"authToken", token_}
             };
-            ws_.send(hello.to_json().dump());
+            ws_.send(hello.ToJson().dump());
             return;
         }
 

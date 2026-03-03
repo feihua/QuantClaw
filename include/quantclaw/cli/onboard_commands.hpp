@@ -10,27 +10,12 @@
 
 namespace quantclaw::cli {
 
-/**
- * Onboarding wizard for initial QuantClaw setup
- * Guides users through configuration, daemon installation, and basic setup
- */
 class OnboardCommands {
 public:
     explicit OnboardCommands(std::shared_ptr<spdlog::logger> logger);
 
-    /**
-     * Run the interactive onboarding wizard
-     */
     int OnboardCommand(const std::vector<std::string>& args);
-
-    /**
-     * Install daemon as system service
-     */
     int InstallDaemonCommand(const std::vector<std::string>& args);
-
-    /**
-     * Quick setup (non-interactive)
-     */
     int QuickSetupCommand(const std::vector<std::string>& args);
 
 private:
@@ -51,7 +36,6 @@ private:
     int SetupChannels();
     int VerifySetup();
 
-    // Helper functions
     bool CreateWorkspaceDirectory();
     bool CreateConfigFile(const std::string& model, int port,
                          const std::string& bind, const std::string& token);

@@ -15,9 +15,7 @@
 
 namespace quantclaw::cli {
 
-// ---------------------------------------------------------------------------
 // Token generation (OpenClaw-compatible: 48-char hex string)
-// ---------------------------------------------------------------------------
 std::string OnboardCommands::GenerateToken() {
     static constexpr char kHexChars[] = "0123456789abcdef";
     std::random_device rd;
@@ -34,9 +32,6 @@ std::string OnboardCommands::GenerateToken() {
 OnboardCommands::OnboardCommands(std::shared_ptr<spdlog::logger> logger)
     : logger_(logger) {}
 
-// ---------------------------------------------------------------------------
-// Main onboard wizard
-// ---------------------------------------------------------------------------
 int OnboardCommands::OnboardCommand(const std::vector<std::string>& args) {
     bool install_daemon = false;
     bool skip_daemon = false;
@@ -104,9 +99,6 @@ int OnboardCommands::OnboardCommand(const std::vector<std::string>& args) {
     return 0;
 }
 
-// ---------------------------------------------------------------------------
-// quantclaw onboard --install-daemon
-// ---------------------------------------------------------------------------
 int OnboardCommands::InstallDaemonCommand(const std::vector<std::string>& /*args*/) {
     // Load or create config first (daemon needs port + token)
     int port = 18800;
@@ -133,9 +125,6 @@ int OnboardCommands::InstallDaemonCommand(const std::vector<std::string>& /*args
     return 1;
 }
 
-// ---------------------------------------------------------------------------
-// quantclaw onboard --quick
-// ---------------------------------------------------------------------------
 int OnboardCommands::QuickSetupCommand(const std::vector<std::string>& /*args*/) {
     std::cout << "Running quick setup..." << std::endl;
 
@@ -521,18 +510,12 @@ bool OnboardCommands::CreateToolsFile() {
         "Add MCP servers in quantclaw.json to extend tool capabilities.\n");
 }
 
-// ---------------------------------------------------------------------------
-// Daemon: delegate to platform::ServiceManager (user-level systemd)
-// ---------------------------------------------------------------------------
 bool OnboardCommands::InstallDaemon(int port) {
     platform::ServiceManager service(logger_);
     int ret = service.install(port);
     return ret == 0;
 }
 
-// ---------------------------------------------------------------------------
-// Gateway health probe
-// ---------------------------------------------------------------------------
 bool OnboardCommands::TestGatewayConnection(int port) {
     try {
         std::string url = "ws://127.0.0.1:" + std::to_string(port);

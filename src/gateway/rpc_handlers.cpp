@@ -27,7 +27,6 @@
 
 namespace quantclaw::gateway {
 
-// Helper to register all RPC handlers on a GatewayServer
 void register_rpc_handlers(
     GatewayServer& server,
     std::shared_ptr<quantclaw::SessionManager> session_manager,

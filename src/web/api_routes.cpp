@@ -606,8 +606,16 @@ void register_api_routes(
                     );
                 } else {
                     // Non-streaming response
+                    // Track usage delta for this request
+                    auto usage_acc = agent_loop->GetUsageAccumulator();
+                    auto usage_before = usage_acc ? usage_acc->GetGlobal() :
+                        quantclaw::UsageAccumulator::Stats{};
+
                     auto new_messages = agent_loop->ProcessMessage(
                         user_message, llm_history, system_prompt);
+
+                    auto usage_after = usage_acc ? usage_acc->GetGlobal() :
+                        quantclaw::UsageAccumulator::Stats{};
 
                     std::string final_response;
                     for (const auto& msg : new_messages) {
@@ -618,6 +626,11 @@ void register_api_routes(
 
                     auto now = std::chrono::duration_cast<std::chrono::seconds>(
                         std::chrono::system_clock::now().time_since_epoch()).count();
+
+                    // Calculate token deltas for this request
+                    int64_t prompt_tokens = usage_after.input_tokens - usage_before.input_tokens;
+                    int64_t completion_tokens = usage_after.output_tokens - usage_before.output_tokens;
+                    int64_t total_tokens = prompt_tokens + completion_tokens;
 
                     nlohmann::json response;
                     response["id"] = "chatcmpl-qc-" + std::to_string(now);
@@ -630,9 +643,9 @@ void register_api_routes(
                          {"finish_reason", "stop"}}
                     });
                     response["usage"] = {
-                        {"prompt_tokens", 0},
-                        {"completion_tokens", 0},
-                        {"total_tokens", 0}
+                        {"prompt_tokens", prompt_tokens},
+                        {"completion_tokens", completion_tokens},
+                        {"total_tokens", total_tokens}
                     };
 
                     json_ok(res, response);

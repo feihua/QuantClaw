@@ -293,6 +293,23 @@ void register_rpc_handlers(
             int start = std::min(offset, total);
             int end = (limit > 0) ? std::min(start + limit, total) : total;
 
+            // Helper: Convert ISO timestamp "YYYY-MM-DDTHH:MM:SSZ" to milliseconds since epoch
+            auto iso_to_ms = [](const std::string& iso_str) -> int64_t {
+                if (iso_str.empty()) return 0;
+                std::tm tm = {};
+                const char* result = strptime(iso_str.c_str(), "%Y-%m-%dT%H:%M:%SZ", &tm);
+                if (!result) return 0;
+                tm.tm_isdst = 0;  // UTC has no DST
+                // Use timegm for UTC (POSIX)
+#ifdef _WIN32
+                auto time_t_val = _mktime64(&tm);
+#else
+                auto time_t_val = timegm(&tm);
+#endif
+                if (time_t_val < 0) return 0;
+                return static_cast<int64_t>(time_t_val) * 1000;
+            };
+
             nlohmann::json session_rows = nlohmann::json::array();
             for (int i = start; i < end; ++i) {
                 const auto& s = sessions[i];
@@ -301,8 +318,8 @@ void register_rpc_handlers(
                 row["sessionId"] = s.session_id;
                 row["displayName"] = s.display_name;
                 row["surface"] = s.channel.empty() ? "cli" : s.channel;
-                // Convert ISO timestamp to epoch ms if possible, else 0
-                row["updatedAt"] = s.updated_at.empty() ? 0 : 0;
+                // Convert ISO timestamp to epoch ms
+                row["updatedAt"] = iso_to_ms(s.updated_at);
                 // Derive kind from key pattern
                 if (s.session_key.find("group:") != std::string::npos) {
                     row["kind"] = "group";

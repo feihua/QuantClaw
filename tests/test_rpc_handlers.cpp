@@ -289,6 +289,37 @@ TEST_F(RpcHandlersTest, SessionsListWithLimitOffset) {
     client->Disconnect();
 }
 
+// --- sessions.list returns valid timestamps ---
+
+TEST_F(RpcHandlersTest, SessionsListUpdatedAtIsTimestamp) {
+    auto client = make_client();
+    ASSERT_TRUE(client->Connect(5000));
+
+    // Create a session
+    client->Call("agent.request", {{"message", "Hi"}, {"sessionKey", "test:main"}}, 10000);
+
+    // List sessions
+    auto result = client->Call("sessions.list", nlohmann::json::object());
+    ASSERT_TRUE(result.is_object());
+    ASSERT_TRUE(result.contains("sessions"));
+    ASSERT_TRUE(result["sessions"].is_array());
+    EXPECT_GT(result["sessions"].size(), 0u);
+
+    // Check that updatedAt is a non-zero integer (milliseconds since epoch)
+    const auto& session = result["sessions"][0];
+    ASSERT_TRUE(session.contains("updatedAt"));
+    ASSERT_TRUE(session["updatedAt"].is_number_integer());
+    int64_t updated_at_ms = session["updatedAt"].get<int64_t>();
+    EXPECT_GT(updated_at_ms, 0);
+
+    // Verify it's a reasonable timestamp (within last hour)
+    auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    EXPECT_LT(now_ms - updated_at_ms, 3600000);  // Less than 1 hour ago
+
+    client->Disconnect();
+}
+
 // --- health returns uptime and version ---
 
 TEST_F(RpcHandlersTest, HealthContainsUptime) {

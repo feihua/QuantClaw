@@ -358,8 +358,8 @@ bool OnboardCommands::CreateWorkspaceDirectory() {
     std::string home_str = home ? home : "/tmp";
 
     try {
-        // OpenClaw-compatible: agents/default/workspace
-        auto workspace = std::filesystem::path(home_str) / ".quantclaw/agents/default/workspace";
+        // QuantClaw agent ID: main
+        auto workspace = std::filesystem::path(home_str) / ".quantclaw/agents/main/workspace";
         std::filesystem::create_directories(workspace);
 
         // Create standard subdirectories
@@ -368,7 +368,7 @@ bool OnboardCommands::CreateWorkspaceDirectory() {
         std::filesystem::create_directories(workspace / "references");
 
         // Sessions directory
-        auto sessions = std::filesystem::path(home_str) / ".quantclaw/agents/default/sessions";
+        auto sessions = std::filesystem::path(home_str) / ".quantclaw/agents/main/sessions";
         std::filesystem::create_directories(sessions);
 
         // Logs directory
@@ -391,49 +391,89 @@ bool OnboardCommands::CreateConfigFile(const std::string& model, int port,
         std::filesystem::create_directories(
             std::filesystem::path(config_path).parent_path());
 
-        nlohmann::json config = {
-            {"gateway", {
-                {"port", port},
-                {"bind", bind},
-                {"auth", {
-                    {"mode", "token"},
-                    {"token", token}
-                }}
-            }},
-            {"models", {
-                {"defaultModel", model},
-                {"providers", {
-                    {"anthropic", {{"apiKey", ""}}},
-                    {"openai", {{"apiKey", ""}}}
-                }}
-            }},
-            {"agent", {
+        nlohmann::json config;
+
+        // If config exists, load it to preserve API keys and other settings
+        if (std::filesystem::exists(config_path)) {
+            try {
+                std::ifstream existing_file(config_path);
+                existing_file >> config;
+            } catch (const std::exception&) {
+                // If loading fails, start fresh
+                config = nlohmann::json::object();
+            }
+        }
+
+        // Merge new settings into existing config (preserving API keys)
+        config["gateway"]["port"] = port;
+        config["gateway"]["bind"] = bind;
+        config["gateway"]["auth"]["mode"] = "token";
+        config["gateway"]["auth"]["token"] = token;
+
+        // Set defaults for agent and other sections
+        if (!config.contains("agent") || config["agent"].is_null()) {
+            config["agent"] = {
                 {"model", model},
                 {"autoCompact", true},
                 {"compactMaxMessages", 100},
                 {"maxIterations", 15},
                 {"temperature", 0.7},
                 {"maxTokens", 8192}
-            }},
-            {"queue", {
+            };
+        } else {
+            // Update model while preserving other agent settings
+            config["agent"]["model"] = model;
+        }
+
+        // Ensure models section exists but preserve any existing API keys
+        if (!config.contains("models") || config["models"].is_null()) {
+            config["models"] = {
+                {"defaultModel", model},
+                {"providers", {
+                    {"anthropic", {{"apiKey", ""}}},
+                    {"openai", {{"apiKey", ""}}}
+                }}
+            };
+        } else {
+            config["models"]["defaultModel"] = model;
+            // Preserve existing API keys
+            if (!config["models"].contains("providers") || config["models"]["providers"].is_null()) {
+                config["models"]["providers"] = {
+                    {"anthropic", {{"apiKey", ""}}},
+                    {"openai", {{"apiKey", ""}}}
+                };
+            }
+        }
+
+        // Set defaults for other sections if not present
+        if (!config.contains("queue") || config["queue"].is_null()) {
+            config["queue"] = {
                 {"maxConcurrent", 4},
                 {"debounceMs", 1000}
-            }},
-            {"session", {
+            };
+        }
+        if (!config.contains("session") || config["session"].is_null()) {
+            config["session"] = {
                 {"dmScope", "per-channel-peer"}
-            }},
-            {"channels", {
+            };
+        }
+        if (!config.contains("channels") || config["channels"].is_null()) {
+            config["channels"] = {
                 {"discord", {{"enabled", false}}},
                 {"telegram", {{"enabled", false}}}
-            }},
-            {"tools", {
+            };
+        }
+        if (!config.contains("tools") || config["tools"].is_null()) {
+            config["tools"] = {
                 {"allow", nlohmann::json::array()},
                 {"exec", {{"ask", "on-miss"}}}
-            }},
-            {"mcp", {
+            };
+        }
+        if (!config.contains("mcp") || config["mcp"].is_null()) {
+            config["mcp"] = {
                 {"servers", nlohmann::json::array()}
-            }}
-        };
+            };
+        }
 
         std::ofstream file(config_path);
         file << config.dump(2);
@@ -451,7 +491,7 @@ bool OnboardCommands::CreateWorkspaceFile(const std::string& filename,
     const char* home = std::getenv("HOME");
     std::string home_str = home ? home : "/tmp";
     auto path = std::filesystem::path(home_str) /
-                ".quantclaw/agents/default/workspace" / filename;
+                ".quantclaw/agents/main/workspace" / filename;
 
     try {
         std::ofstream file(path);

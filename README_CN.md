@@ -472,21 +472,130 @@ curl http://localhost:18801/api/plugins/commands
 
 ## Docker 部署
 
-```bash
-# 一键启动（Docker 文件位于 scripts/ 目录）
-docker compose -f scripts/docker-compose.yml up -d
+所有 Docker 相关文件均位于 `scripts/` 目录。
 
-# 或手动构建
-docker build -f scripts/Dockerfile -t quantclaw .
-docker run -d \
-  -p 18800:18800 \
-  -p 18801:18801 \
-  -e OPENAI_API_KEY=your-key \
-  -v quantclaw_data:/home/quantclaw/.quantclaw \
-  quantclaw
+### 镜像类型
+
+| 文件 | 用途 | 基础镜像 | 运行用户 |
+|------|------|----------|----------|
+| `scripts/Dockerfile` | **生产镜像** — 最小化运行时，含 C++ 二进制 + Sidecar | Ubuntu 22.04 多阶段构建 | `quantclaw`（非 root）|
+| `scripts/Dockerfile.test` | **CI / 测试镜像** — 运行 C++ 单元测试 + Sidecar 测试 + E2E 测试 | Ubuntu 22.04 | root |
+| `scripts/Dockerfile.dev` | **开发镜像** — 完整工具链 + 源码 + `gdb`/`valgrind`，交互式 Shell | Ubuntu 22.04 | root |
+
+生产镜像采用**三阶段构建**：`cpp-builder`（编译 C++）、`node-builder`（编译 TypeScript Sidecar）、`runtime`（仅复制最终产物）。以非 root 用户 `quantclaw` 运行。
+
+### DOCKER_VERSION
+
+`scripts/DOCKER_VERSION` 是镜像版本号的唯一来源：
+
+```bash
+VERSION=$(cat scripts/DOCKER_VERSION)
+# → 0.3.0-alpha
 ```
 
-Docker 镜像使用多阶段构建（基于 Ubuntu 22.04），以非 root 用户运行。配置数据通过 `/home/quantclaw/.quantclaw` 卷持久化。Docker 文件位于 `scripts/` 目录。
+三个 Compose 服务均通过 `QUANTCLAW_VERSION` 环境变量读取此版本号。
+
+### 使用 Docker Compose 快速启动
+
+```bash
+# 后台启动生产网关
+docker compose -f scripts/docker-compose.yml up -d quantclaw
+
+# 查看日志
+docker compose -f scripts/docker-compose.yml logs -f quantclaw
+
+# 运行完整测试套件（一次性容器）
+docker compose -f scripts/docker-compose.yml run --rm quantclaw-test
+
+# 启动开发容器（挂载源码目录）
+docker compose -f scripts/docker-compose.yml run --rm quantclaw-dev
+```
+
+Compose 文件定义了三个服务：
+
+| 服务 | 镜像 | 说明 |
+|------|------|------|
+| `quantclaw` | `quantclaw:VERSION` | 生产网关，异常自动重启 |
+| `quantclaw-test` | `quantclaw-test:VERSION` | 一次性测试运行器 |
+| `quantclaw-dev` | `quantclaw-dev:VERSION` | 开发 Shell，挂载源码目录 |
+
+### 手动构建
+
+```bash
+VERSION=$(cat scripts/DOCKER_VERSION)
+
+# 生产镜像（含 OCI 元数据标签）
+docker build \
+  -f scripts/Dockerfile \
+  --build-arg VERSION=$VERSION \
+  --build-arg BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+  --build-arg VCS_REF=$(git rev-parse --short HEAD) \
+  -t quantclaw:$VERSION \
+  -t quantclaw:latest \
+  .
+
+# 测试镜像
+docker build -f scripts/Dockerfile.test -t quantclaw-test:$VERSION .
+
+# 开发镜像
+docker build -f scripts/Dockerfile.dev -t quantclaw-dev:$VERSION .
+```
+
+### 运行生产镜像
+
+```bash
+docker run -d \
+  --name quantclaw \
+  -p 18800:18800 \
+  -p 18801:18801 \
+  -e OPENAI_API_KEY=sk-... \
+  -e ANTHROPIC_API_KEY=sk-ant-... \
+  -e QUANTCLAW_LOG_LEVEL=info \
+  -v quantclaw_data:/home/quantclaw/.quantclaw \
+  quantclaw:latest
+```
+
+### 构建参数与环境变量
+
+**构建参数**（生产镜像，通过 `--build-arg` 或 `docker-compose.yml` 传入）：
+
+| 参数 | 说明 |
+|------|------|
+| `VERSION` | 写入 OCI `org.opencontainers.image.version` 标签 |
+| `BUILD_DATE` | ISO-8601 构建时间戳，写入 OCI 标签 |
+| `VCS_REF` | Git commit 短 SHA，写入 OCI 标签 |
+| `UBUNTU_VERSION` | Ubuntu 基础镜像版本（默认 `22.04`） |
+
+**运行时环境变量**：
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `OPENAI_API_KEY` | — | OpenAI / 兼容 Provider 的 API Key |
+| `ANTHROPIC_API_KEY` | — | Anthropic API Key |
+| `QUANTCLAW_LOG_LEVEL` | `info` | 日志级别：`debug` / `info` / `warn` / `error` |
+
+### 挂载卷与端口
+
+| 挂载卷 | 说明 |
+|--------|------|
+| `/home/quantclaw/.quantclaw` | 配置、工作空间、会话记录、日志 — **务必持久化** |
+
+| 端口 | 协议 | 说明 |
+|------|------|------|
+| `18800` | WebSocket | 网关 RPC 接入点 |
+| `18801` | HTTP | 仪表板和 REST API |
+
+## 脚本工具
+
+所有辅助脚本均位于 `scripts/` 目录，请**从仓库根目录**运行。
+
+| 脚本 | 说明 |
+|------|------|
+| `scripts/install.sh` | 原生安装：自动检测系统（Ubuntu/Debian/Fedora/Arch），安装依赖、编译源码、创建工作空间。以 root 执行：`sudo bash scripts/install.sh` |
+| `scripts/format-code.sh` | 用 `clang-format` 格式化所有 C++ 源文件。加 `--check` 参数可做 dry-run（CI 使用）。 |
+| `scripts/format-code-docker.sh` | 同上，但在 Docker 内运行，无需本地安装 `clang-format`。 |
+| `scripts/build_ui.sh` | 构建 Web 仪表板 UI 静态资源。 |
+
 
 ## 测试
 

@@ -264,7 +264,7 @@ std::vector<Message> AgentLoop::ProcessMessage(const std::string& message,
             // Record success for failover tracking
             if (failover_resolver_ && !last_provider_id_.empty()) {
                 failover_resolver_->RecordSuccess(
-                    last_provider_id_, last_profile_id_, effective_session_key);
+                    last_provider_id_, last_profile_id_, session_key_);
             }
 
             if (!response.tool_calls.empty()) {
@@ -600,7 +600,7 @@ std::vector<Message> AgentLoop::ProcessMessageStream(const std::string& message,
             // Record success for failover tracking
             if (failover_resolver_ && !last_provider_id_.empty()) {
                 failover_resolver_->RecordSuccess(
-                    last_provider_id_, last_profile_id_, effective_session_key);
+                    last_provider_id_, last_profile_id_, session_key_);
             }
 
             // If we got a final response without tool calls, we're done

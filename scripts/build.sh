@@ -79,7 +79,7 @@ check_dep() {
     command -v "$cmd" &>/dev/null && return 0
     warn "'$cmd' not found — attempting to install..."
     if command -v apt-get &>/dev/null; then
-        sudo apt-get install -y "$apt_pkg"
+        sudo apt-get update -qq && sudo apt-get install -y "$apt_pkg"
     elif command -v brew &>/dev/null; then
         brew install "$brew_pkg"
     elif command -v dnf &>/dev/null; then

@@ -492,6 +492,11 @@ VERSION=$(cat scripts/DOCKER_VERSION)
 ```
 
 All three Compose services use this value via the `QUANTCLAW_VERSION` environment variable.
+To set it explicitly before running Compose:
+
+```bash
+export QUANTCLAW_VERSION=$(cat scripts/DOCKER_VERSION)
+```
 
 ### Quick start with Docker Compose
 
@@ -714,7 +719,7 @@ QuantClaw aims for full compatibility with [OpenClaw](https://github.com/opencla
 | Plugin Sidecar IPC | **Full** | Tools, hooks, services, providers, commands, HTTP routes, gateway methods |
 | JSONL session format | **Partial** | Basic read/write compatible; missing branching (parentId), 8 entry types, write lock |
 | Config format | **Partial** | JSON5 (comments, trailing commas) and `${VAR}` env substitution supported; `$include` directive pending |
-| CLI commands | **Partial** | Core commands present; `models`, `approvals`, `tui`, `channels` management CLI not yet implemented |
+| CLI commands | **Partial** | Core commands present; `approvals`, `tui` management CLI not yet implemented |
 | Gateway RPC protocol | **Partial** | ~30 methods implemented; ~85+ OpenClaw methods pending |
 | Provider system | **Partial** | OpenAI + Anthropic + 5 OpenAI-compatible; missing OAuth, GitHub Copilot, Qwen, etc. |
 | Agent loop | **Partial** | Dynamic iterations (32–160), context guard, tool truncation, overflow compaction retry, budget pruning all implemented; multi-stage summary pending |
@@ -755,7 +760,7 @@ Currently implemented: WebSocket/HTTP gateway, multi-provider LLM with failover,
 
 Not yet implemented:
 - TUI interactive mode
-- `models`, `approvals`, `gateway health/probe`, `channels` management CLI
+- `approvals`, `tui`, `gateway health/probe` management CLI
 - Config `$include` directive (modular config files)
 - Multiple auth profiles with OAuth credential flows
 - Hybrid memory search (vector embeddings + BM25, SQLite backend)

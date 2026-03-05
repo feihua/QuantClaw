@@ -478,7 +478,7 @@ curl http://localhost:18801/api/plugins/commands
 
 | 文件 | 用途 | 基础镜像 | 运行用户 |
 |------|------|----------|----------|
-| `scripts/Dockerfile` | **生产镜像** — 最小化运行时，含 C++ 二进制 + Sidecar | Ubuntu 22.04 多阶段构建 | `quantclaw`（非 root）|
+| `scripts/Dockerfile` | **生产镜像** — 最小化运行时，含 C++ 二进制 + Sidecar | Ubuntu 22.04（可通过 `--build-arg UBUNTU_VERSION=` 覆盖）多阶段构建 | `quantclaw`（非 root）|
 | `scripts/Dockerfile.test` | **CI / 测试镜像** — 运行 C++ 单元测试 + Sidecar 测试 + E2E 测试 | Ubuntu 22.04 | root |
 | `scripts/Dockerfile.dev` | **开发镜像** — 完整工具链 + 源码 + `gdb`/`valgrind`，交互式 Shell | Ubuntu 22.04 | root |
 

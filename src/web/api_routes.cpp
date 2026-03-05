@@ -556,7 +556,7 @@ void register_api_routes(
                     std::thread worker(
                         [state, agent_loop, user_message,
                          llm_history = std::move(llm_history),
-                         system_prompt, model, resp_id, logger]() {
+                         system_prompt, model, resp_id, session_key, logger]() {
                             try {
                                 agent_loop->ProcessMessageStream(
                                     user_message, llm_history, system_prompt,
@@ -581,8 +581,8 @@ void register_api_routes(
                                             state->chunks.push(std::move(sse));
                                             state->cv.notify_one();
                                         }
-                                    }
-                                );
+                                    },
+                                    session_key);
 
                                 // Send [DONE] marker
                                 {

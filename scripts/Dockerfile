@@ -41,9 +41,11 @@ RUN mkdir -p build && cd build \
     && (strip /src/build/quantclaw 2>/dev/null || true)
 
 # ── Stage 2: Sidecar (Node.js) build ─────────────────────────────────────────
-# Use the official Node.js image — avoids nodesource installation issues and
-# guarantees correct npm version for lockfileVersion 3.
-FROM node:20-slim AS node-builder
+# Use the Ubuntu 22.04-based Node.js image so the copied node binary links
+# against glibc 2.35 — matching the runtime stage (ubuntu:22.04).
+# node:20-slim (Debian Bookworm) requires glibc >= 2.36 and would fail at
+# runtime on Ubuntu 22.04.
+FROM node:20-jammy AS node-builder
 
 # Copy package files first for better layer caching.
 # Use explicit filenames (not glob) — some BuildKit versions mis-expand

@@ -151,6 +151,12 @@ private:
     std::string generate_session_id() const;
     std::string get_timestamp() const;
     std::filesystem::path transcript_path(const std::string& session_id) const;
+
+    // Shared boilerplate: normalize key, look up session, open transcript,
+    // write entry, update updated_at, and SaveStore. Returns true on success.
+    // Caller must NOT hold mutex_ when calling this.
+    bool AppendTranscriptEntry(const std::string& session_key,
+                               const nlohmann::json& entry);
 };
 
 } // namespace quantclaw

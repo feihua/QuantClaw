@@ -167,6 +167,9 @@ nlohmann::json MCPServer::handle_list_resources(const nlohmann::json& /*request*
 }
 
 nlohmann::json MCPServer::handle_read_resource(const nlohmann::json& request, const nlohmann::json& id) {
+    if (!request.contains("params") || !request["params"].contains("uri")) {
+        return create_error_response(id, -32602, "Missing required param: uri");
+    }
     try {
         std::string uri = request["params"]["uri"];
         auto it = resources_.find(uri);
@@ -207,6 +210,9 @@ nlohmann::json MCPServer::handle_list_prompts(const nlohmann::json& /*request*/,
 }
 
 nlohmann::json MCPServer::handle_get_prompt(const nlohmann::json& request, const nlohmann::json& id) {
+    if (!request.contains("params") || !request["params"].contains("name")) {
+        return create_error_response(id, -32602, "Missing required param: name");
+    }
     try {
         std::string name = request["params"]["name"];
         auto it = prompts_.find(name);

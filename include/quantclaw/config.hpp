@@ -83,7 +83,7 @@ struct ProviderConfig {
   std::string base_url;
   std::string api;  // "openai-completions", "anthropic-messages"
   int timeout = kDefaultProviderTimeoutSec;
-  std::vector<ModelDefinition> models;  // Per-provider model definitions
+  std::vector<ModelDefinition> models;      // Per-provider model definitions
   std::vector<AuthProfileConfig> profiles;  // Multi-key rotation
 
   static ProviderConfig FromJson(const nlohmann::json& json);

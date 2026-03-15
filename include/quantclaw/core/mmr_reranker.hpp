@@ -30,7 +30,7 @@ class MMRReranker {
   //   top_k: number of items to select
   //   lambda: trade-off between relevance (1.0) and diversity (0.0)
   static std::vector<RankedItem> Rerank(const std::vector<RankedItem>& items,
-                                         int top_k, double lambda = 0.7);
+                                        int top_k, double lambda = 0.7);
 
   // Compute Jaccard similarity between two texts (token overlap).
   static double JaccardSimilarity(const std::string& a, const std::string& b);

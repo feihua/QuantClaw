@@ -21,12 +21,14 @@ class DefaultContextEngine : public ContextEngine {
   DefaultContextEngine(const AgentConfig& config,
                        std::shared_ptr<spdlog::logger> logger);
 
-  std::string Name() const override { return "default"; }
+  std::string Name() const override {
+    return "default";
+  }
 
   AssembleResult Assemble(const std::vector<Message>& history,
                           const std::string& system_prompt,
-                          const std::string& user_message,
-                          int context_window, int max_tokens) override;
+                          const std::string& user_message, int context_window,
+                          int max_tokens) override;
 
   std::vector<Message> CompactOverflow(const std::vector<Message>& messages,
                                        const std::string& system_prompt,
@@ -34,9 +36,13 @@ class DefaultContextEngine : public ContextEngine {
 
   // Set a summary function for multi-stage compaction.
   // When set, CompactOverflow will use chunk-and-merge instead of truncation.
-  void SetSummaryFn(SummaryFn fn) { summary_fn_ = std::move(fn); }
+  void SetSummaryFn(SummaryFn fn) {
+    summary_fn_ = std::move(fn);
+  }
 
-  void SetConfig(const AgentConfig& config) { config_ = config; }
+  void SetConfig(const AgentConfig& config) {
+    config_ = config;
+  }
 
  private:
   AgentConfig config_;

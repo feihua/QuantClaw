@@ -23,35 +23,42 @@ std::unordered_set<std::string> tokenize_to_set(const std::string& text) {
       word.clear();
     }
   }
-  if (!word.empty()) tokens.insert(word);
+  if (!word.empty())
+    tokens.insert(word);
   return tokens;
 }
 
 }  // namespace
 
 double MMRReranker::JaccardSimilarity(const std::string& a,
-                                       const std::string& b) {
+                                      const std::string& b) {
   auto set_a = tokenize_to_set(a);
   auto set_b = tokenize_to_set(b);
 
-  if (set_a.empty() && set_b.empty()) return 1.0;
-  if (set_a.empty() || set_b.empty()) return 0.0;
+  if (set_a.empty() && set_b.empty())
+    return 1.0;
+  if (set_a.empty() || set_b.empty())
+    return 0.0;
 
   int intersection = 0;
   for (const auto& token : set_a) {
-    if (set_b.count(token)) intersection++;
+    if (set_b.count(token))
+      intersection++;
   }
 
-  int union_size =
-      static_cast<int>(set_a.size() + set_b.size()) - intersection;
-  if (union_size == 0) return 0.0;
+  int union_size = static_cast<int>(set_a.size() + set_b.size()) - intersection;
+  if (union_size == 0)
+    return 0.0;
   return static_cast<double>(intersection) / union_size;
 }
 
-std::vector<RankedItem> MMRReranker::Rerank(
-    const std::vector<RankedItem>& items, int top_k, double lambda) {
-  if (items.empty() || top_k <= 0) return {};
-  if (static_cast<int>(items.size()) <= top_k) return items;
+std::vector<RankedItem>
+MMRReranker::Rerank(const std::vector<RankedItem>& items, int top_k,
+                    double lambda) {
+  if (items.empty() || top_k <= 0)
+    return {};
+  if (static_cast<int>(items.size()) <= top_k)
+    return items;
 
   std::vector<RankedItem> selected;
   std::vector<bool> picked(items.size(), false);
@@ -61,13 +68,15 @@ std::vector<RankedItem> MMRReranker::Rerank(
     int best_idx = -1;
 
     for (int i = 0; i < static_cast<int>(items.size()); ++i) {
-      if (picked[i]) continue;
+      if (picked[i])
+        continue;
 
       // Compute max similarity to already selected items
       double max_sim = 0.0;
       for (const auto& sel : selected) {
         double sim = JaccardSimilarity(items[i].content, sel.content);
-        if (sim > max_sim) max_sim = sim;
+        if (sim > max_sim)
+          max_sim = sim;
       }
 
       // MMR score

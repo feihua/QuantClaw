@@ -30,7 +30,9 @@ class TemporalDecay {
   double ScoreFromAge(double age_days) const;
 
   // Get the configured half-life in days.
-  double HalfLifeDays() const { return half_life_days_; }
+  double HalfLifeDays() const {
+    return half_life_days_;
+  }
 
  private:
   double half_life_days_;

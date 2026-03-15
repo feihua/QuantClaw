@@ -135,7 +135,8 @@ TEST_F(MultiStageCompactionTest, ChunkByMaxTokensZeroLimit) {
 
 TEST_F(MultiStageCompactionTest, SinglePassForSmallHistory) {
   MultiStageCompaction compactor(logger_);
-  auto history = make_history(3);  // 6 messages, below min_messages_for_multistage
+  auto history =
+      make_history(3);  // 6 messages, below min_messages_for_multistage
 
   int summary_calls = 0;
   SummaryFn fn = [&](const std::vector<Message>& msgs) -> std::string {
@@ -178,7 +179,8 @@ TEST_F(MultiStageCompactionTest, NoSummaryFnReturnsOriginal) {
   MultiStageCompaction compactor(logger_);
   auto history = make_history(3);
 
-  auto result = compactor.CompactMultiStage(history, CompactionOptions{}, nullptr);
+  auto result =
+      compactor.CompactMultiStage(history, CompactionOptions{}, nullptr);
 
   EXPECT_EQ(result.size(), history.size());
 }

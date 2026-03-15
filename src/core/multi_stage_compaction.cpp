@@ -14,13 +14,13 @@ MultiStageCompaction::MultiStageCompaction(
     std::shared_ptr<spdlog::logger> logger)
     : logger_(std::move(logger)) {}
 
-int MultiStageCompaction::EstimateTokens(
-    const std::vector<Message>& messages) {
+int MultiStageCompaction::EstimateTokens(const std::vector<Message>& messages) {
   return ContextPruner::EstimateTokens(messages);
 }
 
-std::vector<std::vector<Message>> MultiStageCompaction::SplitByTokenShare(
-    const std::vector<Message>& messages, int parts) {
+std::vector<std::vector<Message>>
+MultiStageCompaction::SplitByTokenShare(const std::vector<Message>& messages,
+                                        int parts) {
   if (parts <= 1 || messages.empty()) {
     return {messages};
   }
@@ -55,8 +55,9 @@ std::vector<std::vector<Message>> MultiStageCompaction::SplitByTokenShare(
   return result;
 }
 
-std::vector<std::vector<Message>> MultiStageCompaction::ChunkByMaxTokens(
-    const std::vector<Message>& messages, int max_tokens) {
+std::vector<std::vector<Message>>
+MultiStageCompaction::ChunkByMaxTokens(const std::vector<Message>& messages,
+                                       int max_tokens) {
   if (messages.empty()) {
     return {};
   }
@@ -73,8 +74,7 @@ std::vector<std::vector<Message>> MultiStageCompaction::ChunkByMaxTokens(
 
     // If adding this message exceeds the limit, start a new chunk
     // (but always add at least one message per chunk)
-    if (!current_chunk.empty() &&
-        current_tokens + msg_tokens > max_tokens) {
+    if (!current_chunk.empty() && current_tokens + msg_tokens > max_tokens) {
       result.push_back(std::move(current_chunk));
       current_chunk.clear();
       current_tokens = 0;
@@ -91,10 +91,10 @@ std::vector<std::vector<Message>> MultiStageCompaction::ChunkByMaxTokens(
   return result;
 }
 
-std::vector<Message> MultiStageCompaction::CompactMultiStage(
-    const std::vector<Message>& messages,
-    const CompactionOptions& opts,
-    SummaryFn summary_fn) {
+std::vector<Message>
+MultiStageCompaction::CompactMultiStage(const std::vector<Message>& messages,
+                                        const CompactionOptions& opts,
+                                        SummaryFn summary_fn) {
   if (!summary_fn) {
     logger_->warn("No summary function provided, returning messages as-is");
     return messages;
@@ -106,17 +106,15 @@ std::vector<Message> MultiStageCompaction::CompactMultiStage(
   // Small enough for single-pass
   if (msg_count < opts.min_messages_for_multistage ||
       total_tokens <= opts.max_chunk_tokens) {
-    logger_->info(
-        "Single-pass compaction: {} messages, ~{} tokens",
-        msg_count, total_tokens);
+    logger_->info("Single-pass compaction: {} messages, ~{} tokens", msg_count,
+                  total_tokens);
 
     std::string summary = summary_fn(messages);
     std::vector<Message> result;
-    result.push_back(Message{
-        "system",
-        "[Compacted context (" + std::to_string(msg_count) +
-            " messages, ~" + std::to_string(total_tokens) +
-            " tokens)]\n\n" + summary});
+    result.push_back(
+        Message{"system", "[Compacted context (" + std::to_string(msg_count) +
+                              " messages, ~" + std::to_string(total_tokens) +
+                              " tokens)]\n\n" + summary});
     return result;
   }
 
@@ -135,9 +133,9 @@ std::vector<Message> MultiStageCompaction::CompactMultiStage(
 
   for (int i = 0; i < num_chunks; i++) {
     int chunk_tokens = EstimateTokens(chunks[i]);
-    logger_->debug("Summarizing chunk {}/{}: {} messages, ~{} tokens",
-                   i + 1, num_chunks,
-                   static_cast<int>(chunks[i].size()), chunk_tokens);
+    logger_->debug("Summarizing chunk {}/{}: {} messages, ~{} tokens", i + 1,
+                   num_chunks, static_cast<int>(chunks[i].size()),
+                   chunk_tokens);
 
     std::string summary = summary_fn(chunks[i]);
     chunk_summaries.push_back(std::move(summary));
@@ -159,7 +157,8 @@ std::vector<Message> MultiStageCompaction::CompactMultiStage(
 
   // If merged result exceeds target and we have a target, do a final pass
   if (opts.target_tokens > 0 &&
-      merged_tokens > static_cast<int>(opts.target_tokens * opts.safety_margin)) {
+      merged_tokens >
+          static_cast<int>(opts.target_tokens * opts.safety_margin)) {
     logger_->info(
         "Merged summaries (~{} tokens) exceed target ({}), "
         "running final summarization pass",
@@ -172,15 +171,13 @@ std::vector<Message> MultiStageCompaction::CompactMultiStage(
   }
 
   std::vector<Message> result;
-  result.push_back(Message{
-      "system",
-      "[Compacted context (" + std::to_string(msg_count) +
-          " messages, ~" + std::to_string(total_tokens) +
-          " tokens, " + std::to_string(num_chunks) +
-          " stages)]\n\n" + merged});
+  result.push_back(
+      Message{"system", "[Compacted context (" + std::to_string(msg_count) +
+                            " messages, ~" + std::to_string(total_tokens) +
+                            " tokens, " + std::to_string(num_chunks) +
+                            " stages)]\n\n" + merged});
 
-  logger_->info("Multi-stage compaction complete: {} → 1 message",
-                msg_count);
+  logger_->info("Multi-stage compaction complete: {} → 1 message", msg_count);
 
   return result;
 }

@@ -9,10 +9,10 @@
 namespace quantclaw {
 
 struct VectorEntry {
-  std::string id;               // Unique identifier (e.g., "filepath:line")
+  std::string id;  // Unique identifier (e.g., "filepath:line")
   std::vector<float> embedding;
-  std::string content;          // Original text
-  std::string source;           // Source file path
+  std::string content;  // Original text
+  std::string source;   // Source file path
   int line_number = 0;
 };
 
@@ -33,17 +33,21 @@ class VectorIndex {
 
   // Search for the top-k most similar entries to the query embedding.
   std::vector<VectorSearchResult> Search(const std::vector<float>& query,
-                                          int top_k = 10) const;
+                                         int top_k = 10) const;
 
   // Number of entries in the index.
-  size_t Size() const { return entries_.size(); }
+  size_t Size() const {
+    return entries_.size();
+  }
 
   // Clear all entries.
-  void Clear() { entries_.clear(); }
+  void Clear() {
+    entries_.clear();
+  }
 
   // Compute cosine similarity between two vectors.
   static float CosineSimilarity(const std::vector<float>& a,
-                                 const std::vector<float>& b);
+                                const std::vector<float>& b);
 
  private:
   std::vector<VectorEntry> entries_;

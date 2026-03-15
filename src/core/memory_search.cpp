@@ -156,22 +156,23 @@ void MemorySearch::BuildVectorIndex() {
     texts.push_back(entry.content);
   }
 
-  if (texts.empty()) return;
+  if (texts.empty())
+    return;
 
   EmbeddingRequest req;
   req.texts = texts;
   auto resp = embedding_provider_->Embed(req);
 
   if (resp.embeddings.size() != entries_.size()) {
-    logger_->error(
-        "Embedding count mismatch: got {} for {} entries",
-        resp.embeddings.size(), entries_.size());
+    logger_->error("Embedding count mismatch: got {} for {} entries",
+                   resp.embeddings.size(), entries_.size());
     return;
   }
 
   for (size_t i = 0; i < entries_.size(); ++i) {
     VectorEntry ve;
-    ve.id = entries_[i].filepath + ":" + std::to_string(entries_[i].line_number);
+    ve.id =
+        entries_[i].filepath + ":" + std::to_string(entries_[i].line_number);
     ve.embedding = std::move(resp.embeddings[i]);
     ve.content = entries_[i].content;
     ve.source = entries_[i].filepath;
@@ -182,8 +183,9 @@ void MemorySearch::BuildVectorIndex() {
   logger_->info("Built vector index with {} entries", vector_index_.Size());
 }
 
-std::vector<MemorySearchResult> MemorySearch::HybridSearch(
-    const std::string& query, const HybridSearchOptions& opts) const {
+std::vector<MemorySearchResult>
+MemorySearch::HybridSearch(const std::string& query,
+                           const HybridSearchOptions& opts) const {
   // Get BM25 results
   auto bm25_results = Search(query, opts.max_results * 3);
 
@@ -207,17 +209,19 @@ std::vector<MemorySearchResult> MemorySearch::HybridSearch(
     }
 
     // Apply MMR
-    if (opts.use_mmr && static_cast<int>(bm25_results.size()) > opts.max_results) {
+    if (opts.use_mmr &&
+        static_cast<int>(bm25_results.size()) > opts.max_results) {
       std::vector<RankedItem> items;
       for (const auto& r : bm25_results) {
         items.push_back({r.source + ":" + std::to_string(r.line_number),
                          r.content, r.source, r.line_number, r.score});
       }
-      auto reranked = MMRReranker::Rerank(items, opts.max_results, opts.mmr_lambda);
+      auto reranked =
+          MMRReranker::Rerank(items, opts.max_results, opts.mmr_lambda);
       std::vector<MemorySearchResult> final_results;
       for (const auto& item : reranked) {
-        final_results.push_back({item.source, item.content, item.score,
-                                 item.line_number});
+        final_results.push_back(
+            {item.source, item.content, item.score, item.line_number});
       }
       return final_results;
     }
@@ -239,7 +243,8 @@ std::vector<MemorySearchResult> MemorySearch::HybridSearch(
   }
 
   // Get vector search results
-  auto vec_results = vector_index_.Search(resp.embeddings[0], opts.max_results * 3);
+  auto vec_results =
+      vector_index_.Search(resp.embeddings[0], opts.max_results * 3);
 
   // Merge: normalize and combine scores
   // Build a map of id -> combined score
@@ -257,7 +262,8 @@ std::vector<MemorySearchResult> MemorySearch::HybridSearch(
   // Normalize BM25 scores to [0,1]
   double max_bm25 = 0;
   for (const auto& r : bm25_results) {
-    if (r.score > max_bm25) max_bm25 = r.score;
+    if (r.score > max_bm25)
+      max_bm25 = r.score;
   }
   for (const auto& r : bm25_results) {
     std::string key = r.source + ":" + std::to_string(r.line_number);
@@ -283,8 +289,8 @@ std::vector<MemorySearchResult> MemorySearch::HybridSearch(
   // Combine scores with weights
   std::vector<MergedEntry> all_entries;
   for (auto& [key, m] : merged) {
-    m.combined = opts.bm25_weight * m.bm25_score +
-                 opts.vector_weight * m.vec_score;
+    m.combined =
+        opts.bm25_weight * m.bm25_score + opts.vector_weight * m.vec_score;
 
     // Apply temporal decay
     if (opts.use_temporal_decay) {
@@ -296,10 +302,9 @@ std::vector<MemorySearchResult> MemorySearch::HybridSearch(
   }
 
   // Sort by combined score
-  std::sort(all_entries.begin(), all_entries.end(),
-            [](const auto& a, const auto& b) {
-              return a.combined > b.combined;
-            });
+  std::sort(
+      all_entries.begin(), all_entries.end(),
+      [](const auto& a, const auto& b) { return a.combined > b.combined; });
 
   // Apply MMR
   if (opts.use_mmr && static_cast<int>(all_entries.size()) > opts.max_results) {
@@ -308,7 +313,8 @@ std::vector<MemorySearchResult> MemorySearch::HybridSearch(
       items.push_back({e.source + ":" + std::to_string(e.line_number),
                        e.content, e.source, e.line_number, e.combined});
     }
-    auto reranked = MMRReranker::Rerank(items, opts.max_results, opts.mmr_lambda);
+    auto reranked =
+        MMRReranker::Rerank(items, opts.max_results, opts.mmr_lambda);
     std::vector<MemorySearchResult> final_results;
     for (const auto& item : reranked) {
       final_results.push_back(

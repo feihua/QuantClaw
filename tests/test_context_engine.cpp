@@ -18,12 +18,14 @@ namespace quantclaw {
 
 class TestContextEngine : public ContextEngine {
  public:
-  std::string Name() const override { return "test-engine"; }
+  std::string Name() const override {
+    return "test-engine";
+  }
 
   AssembleResult Assemble(const std::vector<Message>& history,
                           const std::string& system_prompt,
-                          const std::string& user_message,
-                          int context_window, int max_tokens) override {
+                          const std::string& user_message, int context_window,
+                          int max_tokens) override {
     assemble_called = true;
     last_history_size = static_cast<int>(history.size());
     last_system_prompt = system_prompt;
@@ -42,8 +44,8 @@ class TestContextEngine : public ContextEngine {
   }
 
   std::vector<Message> CompactOverflow(const std::vector<Message>& messages,
-                                        const std::string& system_prompt,
-                                        int keep_recent) override {
+                                       const std::string& system_prompt,
+                                       int keep_recent) override {
     compact_called = true;
     // Keep only last 2 messages
     std::vector<Message> result;
@@ -95,8 +97,8 @@ TEST_F(DefaultContextEngineTest, AssembleBasic) {
   history.push_back(Message{"user", "hello"});
   history.push_back(Message{"assistant", "hi there"});
 
-  auto result =
-      engine.Assemble(history, "You are helpful.", "what is 2+2?", 128000, 4096);
+  auto result = engine.Assemble(history, "You are helpful.", "what is 2+2?",
+                                128000, 4096);
 
   // Should have: system prompt + 2 history + user message = 4
   ASSERT_GE(result.messages.size(), 4u);
@@ -129,8 +131,7 @@ TEST_F(DefaultContextEngineTest, AssembleAutoCompactsLongHistory) {
   std::vector<Message> history;
   for (int i = 0; i < 10; i++) {
     history.push_back(
-        Message{i % 2 == 0 ? "user" : "assistant",
-                "msg " + std::to_string(i)});
+        Message{i % 2 == 0 ? "user" : "assistant", "msg " + std::to_string(i)});
   }
 
   auto result =
@@ -148,8 +149,7 @@ TEST_F(DefaultContextEngineTest, CompactOverflowKeepsRecentHalf) {
   std::vector<Message> messages;
   messages.push_back(Message{"system", "sys"});
   for (int i = 0; i < 10; i++) {
-    messages.push_back(
-        Message{"user", "msg " + std::to_string(i)});
+    messages.push_back(Message{"user", "msg " + std::to_string(i)});
   }
 
   auto compacted = engine.CompactOverflow(messages, "sys prompt", 0);

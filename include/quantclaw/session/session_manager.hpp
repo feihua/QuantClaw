@@ -81,9 +81,9 @@ struct SessionInfo {
   std::string channel;
 
   // Parent/subagent fields
-  std::string spawned_by;      // Parent session key (empty for root sessions)
-  int spawn_depth = 0;         // 0 = root, 1 = sub, 2 = sub-sub, ...
-  std::string subagent_role;   // "" | "orchestrator" | "leaf"
+  std::string spawned_by;     // Parent session key (empty for root sessions)
+  int spawn_depth = 0;        // 0 = root, 1 = sub, 2 = sub-sub, ...
+  std::string subagent_role;  // "" | "orchestrator" | "leaf"
 };
 
 // Options for creating a session with extended metadata

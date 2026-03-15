@@ -36,10 +36,12 @@ class MockEmbeddingProvider : public EmbeddingProvider {
       }
       // Normalize
       float norm = 0;
-      for (float v : emb) norm += v * v;
+      for (float v : emb)
+        norm += v * v;
       norm = std::sqrt(norm);
       if (norm > 0) {
-        for (float& v : emb) v /= norm;
+        for (float& v : emb)
+          v /= norm;
       }
       resp.embeddings.push_back(std::move(emb));
     }
@@ -47,8 +49,12 @@ class MockEmbeddingProvider : public EmbeddingProvider {
     return resp;
   }
 
-  int Dimensions() const override { return dims_; }
-  std::string Name() const override { return "mock"; }
+  int Dimensions() const override {
+    return dims_;
+  }
+  std::string Name() const override {
+    return "mock";
+  }
 };
 
 // ================================================================
@@ -107,8 +113,7 @@ class MMRRerankerTest : public ::testing::Test {};
 TEST_F(MMRRerankerTest, RerankSelectsTopK) {
   std::vector<RankedItem> items;
   for (int i = 0; i < 10; i++) {
-    items.push_back({"id" + std::to_string(i),
-                     "content " + std::to_string(i),
+    items.push_back({"id" + std::to_string(i), "content " + std::to_string(i),
                      "file.md", i, 1.0 - i * 0.1});
   }
 
@@ -121,7 +126,7 @@ TEST_F(MMRRerankerTest, RerankPromotesDiversity) {
   std::vector<RankedItem> items = {
       {"a", "the cat sat on the mat", "f1", 1, 0.9},
       {"b", "the cat sat on the rug", "f2", 2, 0.85},  // Similar to a
-      {"c", "dogs like to play fetch", "f3", 3, 0.8},   // Different
+      {"c", "dogs like to play fetch", "f3", 3, 0.8},  // Different
   };
 
   // With diversity emphasis (low lambda)
@@ -131,7 +136,8 @@ TEST_F(MMRRerankerTest, RerankPromotesDiversity) {
   // Should prefer diverse results
   bool has_c = false;
   for (const auto& r : result) {
-    if (r.id == "c") has_c = true;
+    if (r.id == "c")
+      has_c = true;
   }
   EXPECT_TRUE(has_c);
 }
@@ -147,7 +153,8 @@ TEST_F(MMRRerankerTest, JaccardSimilarityNoOverlap) {
 }
 
 TEST_F(MMRRerankerTest, JaccardSimilarityPartial) {
-  double sim = MMRReranker::JaccardSimilarity("hello world foo", "hello bar foo");
+  double sim =
+      MMRReranker::JaccardSimilarity("hello world foo", "hello bar foo");
   // Intersection: {hello, foo}, Union: {hello, world, foo, bar}
   EXPECT_NEAR(sim, 0.5, 1e-5);
 }
@@ -212,9 +219,10 @@ class HybridSearchTest : public ::testing::Test {
     std::filesystem::create_directories(tmp_dir_);
 
     // Create test memory files
-    write_file(tmp_dir_ / "notes.md",
-               "Machine learning models\n\nNeural networks and deep learning\n\n"
-               "Gradient descent optimization\n\nData preprocessing pipeline\n");
+    write_file(
+        tmp_dir_ / "notes.md",
+        "Machine learning models\n\nNeural networks and deep learning\n\n"
+        "Gradient descent optimization\n\nData preprocessing pipeline\n");
     write_file(tmp_dir_ / "tasks.md",
                "Fix authentication bug\n\nUpdate API documentation\n\n"
                "Deploy new version to staging\n\nReview pull requests\n");
@@ -224,7 +232,8 @@ class HybridSearchTest : public ::testing::Test {
     std::filesystem::remove_all(tmp_dir_);
   }
 
-  void write_file(const std::filesystem::path& path, const std::string& content) {
+  void write_file(const std::filesystem::path& path,
+                  const std::string& content) {
     std::ofstream ofs(path);
     ofs << content;
   }

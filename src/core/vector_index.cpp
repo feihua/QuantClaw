@@ -13,8 +13,9 @@ void VectorIndex::Add(VectorEntry entry) {
 }
 
 float VectorIndex::CosineSimilarity(const std::vector<float>& a,
-                                     const std::vector<float>& b) {
-  if (a.size() != b.size() || a.empty()) return 0.0f;
+                                    const std::vector<float>& b) {
+  if (a.size() != b.size() || a.empty())
+    return 0.0f;
 
   float dot = 0.0f, norm_a = 0.0f, norm_b = 0.0f;
   for (size_t i = 0; i < a.size(); ++i) {
@@ -24,19 +25,20 @@ float VectorIndex::CosineSimilarity(const std::vector<float>& a,
   }
 
   float denom = std::sqrt(norm_a) * std::sqrt(norm_b);
-  if (denom < 1e-10f) return 0.0f;
+  if (denom < 1e-10f)
+    return 0.0f;
   return dot / denom;
 }
 
-std::vector<VectorSearchResult> VectorIndex::Search(
-    const std::vector<float>& query, int top_k) const {
+std::vector<VectorSearchResult>
+VectorIndex::Search(const std::vector<float>& query, int top_k) const {
   std::vector<VectorSearchResult> results;
   results.reserve(entries_.size());
 
   for (const auto& entry : entries_) {
     float sim = CosineSimilarity(query, entry.embedding);
-    results.push_back({entry.id, entry.content, entry.source,
-                       entry.line_number, sim});
+    results.push_back(
+        {entry.id, entry.content, entry.source, entry.line_number, sim});
   }
 
   // Sort by similarity descending

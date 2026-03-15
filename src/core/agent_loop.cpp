@@ -156,16 +156,15 @@ std::vector<Message> AgentLoop::ProcessMessage(
   std::vector<Message> new_messages;
 
   // --- Context assembly via pluggable engine ---
-  auto engine = context_engine_
-                    ? context_engine_
-                    : std::make_shared<DefaultContextEngine>(agent_config_,
-                                                             logger_);
+  auto engine =
+      context_engine_
+          ? context_engine_
+          : std::make_shared<DefaultContextEngine>(agent_config_, logger_);
   int ctx_window = agent_config_.context_window > 0
                        ? agent_config_.context_window
                        : get_context_window(agent_config_.model);
-  auto assembled =
-      engine->Assemble(history, system_prompt, message, ctx_window,
-                       agent_config_.max_tokens);
+  auto assembled = engine->Assemble(history, system_prompt, message, ctx_window,
+                                    agent_config_.max_tokens);
 
   // Create LLM request
   ChatCompletionRequest request;
@@ -278,8 +277,8 @@ std::vector<Message> AgentLoop::ProcessMessage(
         logger_->warn(
             "Context overflow (attempt {}/{}), compacting and retrying",
             overflow_retries, kOverflowCompactionMaxRetries);
-        request.messages = engine->CompactOverflow(
-            request.messages, system_prompt, 0);
+        request.messages =
+            engine->CompactOverflow(request.messages, system_prompt, 0);
         continue;
       }
 
@@ -361,16 +360,15 @@ std::vector<Message> AgentLoop::ProcessMessageStream(
   std::vector<Message> new_messages;
 
   // --- Context assembly via pluggable engine ---
-  auto engine = context_engine_
-                    ? context_engine_
-                    : std::make_shared<DefaultContextEngine>(agent_config_,
-                                                             logger_);
+  auto engine =
+      context_engine_
+          ? context_engine_
+          : std::make_shared<DefaultContextEngine>(agent_config_, logger_);
   int ctx_window = agent_config_.context_window > 0
                        ? agent_config_.context_window
                        : get_context_window(agent_config_.model);
-  auto assembled =
-      engine->Assemble(history, system_prompt, message, ctx_window,
-                       agent_config_.max_tokens);
+  auto assembled = engine->Assemble(history, system_prompt, message, ctx_window,
+                                    agent_config_.max_tokens);
 
   ChatCompletionRequest request;
   request.messages = assembled.messages;
@@ -515,8 +513,8 @@ std::vector<Message> AgentLoop::ProcessMessageStream(
         overflow_retries_stream++;
         logger_->warn("Streaming context overflow (attempt {}/{}), compacting",
                       overflow_retries_stream, kOverflowCompactionMaxRetries);
-        request.messages = engine->CompactOverflow(
-            request.messages, system_prompt, 0);
+        request.messages =
+            engine->CompactOverflow(request.messages, system_prompt, 0);
         continue;
       }
 

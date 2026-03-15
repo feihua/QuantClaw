@@ -8,8 +8,8 @@
 
 namespace quantclaw {
 
-DefaultContextEngine::DefaultContextEngine(const AgentConfig& config,
-                                           std::shared_ptr<spdlog::logger> logger)
+DefaultContextEngine::DefaultContextEngine(
+    const AgentConfig& config, std::shared_ptr<spdlog::logger> logger)
     : config_(config), logger_(logger), compactor_(logger) {}
 
 AssembleResult DefaultContextEngine::Assemble(
@@ -60,8 +60,8 @@ AssembleResult DefaultContextEngine::Assemble(
         "window {} (min reserve {}). Forcing compaction.",
         estimated, max_tokens, context_window, kContextWindowMinTokens);
 
-    int keep = std::min(config_.compact_keep_recent,
-                        static_cast<int>(context.size()));
+    int keep =
+        std::min(config_.compact_keep_recent, static_cast<int>(context.size()));
     if (keep < static_cast<int>(context.size())) {
       std::vector<Message> compacted;
       if (!system_prompt.empty()) {
@@ -99,9 +99,9 @@ DefaultContextEngine::CompactOverflow(const std::vector<Message>& messages,
       result.insert(result.begin(), Message{"system", system_prompt});
     }
     // Keep recent messages after the summary for continuity
-    int keep = std::max(2, keep_recent > 0
-                               ? keep_recent
-                               : std::min(4, static_cast<int>(messages.size())));
+    int keep = std::max(
+        2, keep_recent > 0 ? keep_recent
+                           : std::min(4, static_cast<int>(messages.size())));
     int msg_count = static_cast<int>(messages.size());
     for (auto it = messages.end() - std::min(keep, msg_count);
          it != messages.end(); ++it) {
@@ -111,16 +111,16 @@ DefaultContextEngine::CompactOverflow(const std::vector<Message>& messages,
   }
 
   // Fallback: simple truncation (fast path, no LLM call needed)
-  int keep = std::max(2, keep_recent > 0
-                             ? keep_recent
-                             : static_cast<int>(messages.size()) / 2);
+  int keep = std::max(
+      2, keep_recent > 0 ? keep_recent : static_cast<int>(messages.size()) / 2);
   std::vector<Message> compacted;
   if (!system_prompt.empty()) {
     compacted.push_back(Message{"system", system_prompt});
   }
-  compacted.push_back(
-      Message{"system", "[Context overflow recovery: older messages removed.]"});
-  for (auto it = messages.end() - std::min(keep, static_cast<int>(messages.size()));
+  compacted.push_back(Message{
+      "system", "[Context overflow recovery: older messages removed.]"});
+  for (auto it =
+           messages.end() - std::min(keep, static_cast<int>(messages.size()));
        it != messages.end(); ++it) {
     compacted.push_back(*it);
   }

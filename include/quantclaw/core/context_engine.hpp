@@ -28,7 +28,8 @@ struct CompactResult {
   int messages_after = 0;
 };
 
-// Summary function type: given a list of JSON messages, return a summary string.
+// Summary function type: given a list of JSON messages, return a summary
+// string.
 using CompactionSummaryFn =
     std::function<std::string(const std::vector<nlohmann::json>&)>;
 
@@ -58,15 +59,13 @@ class ContextEngine {
   virtual AssembleResult Assemble(const std::vector<Message>& history,
                                   const std::string& system_prompt,
                                   const std::string& user_message,
-                                  int context_window,
-                                  int max_tokens) = 0;
+                                  int context_window, int max_tokens) = 0;
 
   // Compact (compress) messages when context overflows.
   // Called during overflow recovery; returns compacted message list.
-  virtual std::vector<Message> CompactOverflow(
-      const std::vector<Message>& messages,
-      const std::string& system_prompt,
-      int keep_recent) = 0;
+  virtual std::vector<Message>
+  CompactOverflow(const std::vector<Message>& messages,
+                  const std::string& system_prompt, int keep_recent) = 0;
 
   // Post-turn bookkeeping (called after assistant response is complete).
   virtual void AfterTurn(const std::vector<Message>& new_messages,

@@ -55,9 +55,9 @@ class MemorySearch {
 
   // Hybrid search: BM25 + vector + temporal decay + MMR.
   // Falls back to BM25-only if no embedding provider is set.
-  std::vector<MemorySearchResult> HybridSearch(
-      const std::string& query,
-      const HybridSearchOptions& opts = {}) const;
+  std::vector<MemorySearchResult>
+  HybridSearch(const std::string& query,
+               const HybridSearchOptions& opts = {}) const;
 
   // Set embedding provider for vector search
   void SetEmbeddingProvider(std::shared_ptr<EmbeddingProvider> provider);

@@ -166,7 +166,8 @@ FailoverResolver::try_resolve_model(const std::string& model,
     for (const auto& profile : prof_it->second) {
       auto key = cooldown_key(provider_id, profile.id);
       auto lu_it = profile_last_used_.find(key);
-      int64_t last_used = (lu_it != profile_last_used_.end()) ? lu_it->second : 0;
+      int64_t last_used =
+          (lu_it != profile_last_used_.end()) ? lu_it->second : 0;
 
       if (cooldown_.IsInCooldown(key)) {
         cooled_down.push_back({&profile, true, profile.priority, last_used});

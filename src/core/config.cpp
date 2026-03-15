@@ -195,6 +195,21 @@ ModelEntryConfig ModelEntryConfig::FromJson(const nlohmann::json& json) {
   return c;
 }
 
+AuthProfileConfig AuthProfileConfig::FromJson(const nlohmann::json& json) {
+  AuthProfileConfig p;
+  p.id = json.value("id", "");
+  p.api_key = json.value("apiKey", json.value("api_key", ""));
+  p.api_key_env = json.value("apiKeyEnv", json.value("api_key_env", ""));
+  p.priority = json.value("priority", 0);
+  // Resolve env var if api_key is empty but env var name is set
+  if (p.api_key.empty() && !p.api_key_env.empty()) {
+    const char* env_val = std::getenv(p.api_key_env.c_str());
+    if (env_val)
+      p.api_key = env_val;
+  }
+  return p;
+}
+
 ProviderConfig ProviderConfig::FromJson(const nlohmann::json& json) {
   ProviderConfig config;
   config.api_key = json.value("apiKey", json.value("api_key", ""));
@@ -204,6 +219,12 @@ ProviderConfig ProviderConfig::FromJson(const nlohmann::json& json) {
   if (json.contains("models") && json["models"].is_array()) {
     for (const auto& m : json["models"]) {
       config.models.push_back(ModelDefinition::FromJson(m));
+    }
+  }
+  // Parse profiles array for multi-key rotation
+  if (json.contains("profiles") && json["profiles"].is_array()) {
+    for (const auto& p : json["profiles"]) {
+      config.profiles.push_back(AuthProfileConfig::FromJson(p));
     }
   }
   return config;

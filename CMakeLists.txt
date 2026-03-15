@@ -91,6 +91,11 @@ set(QUANTCLAW_CORE_SOURCES
     src/core/usage_accumulator.cpp
     src/core/message_commands.cpp
     src/core/subagent.cpp
+    src/core/default_context_engine.cpp
+    src/core/multi_stage_compaction.cpp
+    src/core/vector_index.cpp
+    src/core/mmr_reranker.cpp
+    src/core/temporal_decay.cpp
     # Providers
     src/providers/curl_raii.cpp
     src/providers/openai_provider.cpp
@@ -285,6 +290,9 @@ if(BUILD_TESTS)
         tests/test_message_commands.cpp
         tests/test_builtin_skills.cpp
         tests/test_agent_commands.cpp
+        tests/test_context_engine.cpp
+        tests/test_multi_stage_compaction.cpp
+        tests/test_hybrid_memory_search.cpp
     )
 
     add_executable(quantclaw_tests ${TEST_SOURCES})

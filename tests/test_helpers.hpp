@@ -17,11 +17,15 @@
 #include <winsock2.h>
 #pragma comment(lib, "ws2_32.lib")
 typedef int socklen_t;
+using socket_t = SOCKET;
+static constexpr socket_t kInvalidSocket = INVALID_SOCKET;
 #else
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
+using socket_t = int;
+static constexpr socket_t kInvalidSocket = -1;
 #endif
 
 namespace quantclaw::test {
@@ -44,9 +48,17 @@ inline int FindFreePort() {
 
   std::lock_guard<std::mutex> lock(port_mutex);
 
+  auto close_sock = [](socket_t s) {
+#ifdef _WIN32
+    closesocket(s);
+#else
+    close(s);
+#endif
+  };
+
   for (int attempt = 0; attempt < 100; ++attempt) {
-    int sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock < 0)
+    socket_t sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock == kInvalidSocket)
       return 0;
 
     struct sockaddr_in addr;
@@ -57,32 +69,19 @@ inline int FindFreePort() {
 
     if (bind(sock, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) <
         0) {
-#ifdef _WIN32
-      closesocket(sock);
-#else
-      close(sock);
-#endif
+      close_sock(sock);
       continue;
     }
 
     socklen_t len = sizeof(addr);
     if (getsockname(sock, reinterpret_cast<struct sockaddr*>(&addr), &len) <
         0) {
-#ifdef _WIN32
-      closesocket(sock);
-#else
-      close(sock);
-#endif
+      close_sock(sock);
       continue;
     }
 
     int port = ntohs(addr.sin_port);
-
-#ifdef _WIN32
-    closesocket(sock);
-#else
-    close(sock);
-#endif
+    close_sock(sock);
 
     if (allocated_ports.find(port) == allocated_ports.end()) {
       allocated_ports.insert(port);
@@ -124,8 +123,8 @@ inline bool WaitForServerReady(int port, int timeout_ms = 5000) {
       std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
 
   while (std::chrono::steady_clock::now() < deadline) {
-    int sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock < 0)
+    socket_t sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock == kInvalidSocket)
       return false;
 
     struct sockaddr_in addr;

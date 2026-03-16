@@ -177,7 +177,8 @@ class AgentCommandsIntegrationTest : public ::testing::Test {
     // Wait until the server actually accepts connections instead of a
     // blind sleep.  Under heavy CI load or TSan slowdown the previous
     // 200 ms was sometimes not enough, causing flaky timeouts.
-    quantclaw::test::WaitForServerReady(port_, 5000);
+    ASSERT_TRUE(quantclaw::test::WaitForServerReady(port_, 5000))
+        << "Server not ready on port " << port_;
 
     // Prepare AgentCommands pointing at our mock gateway.
     // Use a 30 s timeout instead of the production default (120 s) so that

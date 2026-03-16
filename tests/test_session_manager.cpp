@@ -269,7 +269,7 @@ TEST_F(SessionManagerTest, DeleteNonexistentSession) {
 }
 
 TEST_F(SessionManagerTest, DeleteExistingSessionReturnsTrue) {
-  auto handle = session_mgr_->GetOrCreate("test:delete:ret");
+  session_mgr_->GetOrCreate("test:delete:ret");
   bool deleted = session_mgr_->DeleteSession("test:delete:ret");
   EXPECT_TRUE(deleted);
   auto sessions = session_mgr_->ListSessions();

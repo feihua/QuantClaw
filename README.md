@@ -347,10 +347,16 @@ quantclaw cron remove <id>                     # Remove a task by ID
 
 ```bash
 quantclaw health          # Quick health check
-quantclaw logs            # Stream gateway logs
+quantclaw logs            # Show last 50 lines of gateway logs
+quantclaw logs -n 100     # Show last 100 lines
+quantclaw logs -f         # Follow logs in real-time
+quantclaw logs -n 20 -f   # Follow, starting from last 20 lines
 quantclaw doctor          # Diagnostic check
 quantclaw dashboard       # Open web UI in browser
 ```
+
+> **Note for Windows users:** log following (`-f`) is not currently supported on Windows and will print an error and exit.
+> As a workaround, use `quantclaw logs -n <count>` (for example, `quantclaw logs -n 100`) and re-run as needed.
 
 ### In-conversation message commands
 
@@ -808,7 +814,7 @@ quantclaw doctor                    # Run diagnostics
 **Can't connect to gateway**
 ```bash
 quantclaw health    # Check if gateway is running
-quantclaw logs      # Stream logs to diagnose errors
+quantclaw logs -f   # Follow logs to diagnose errors (on Windows use: quantclaw logs -n 50)
 quantclaw status    # Show connection and session counts
 ```
 

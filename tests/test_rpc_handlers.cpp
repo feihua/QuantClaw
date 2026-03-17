@@ -131,6 +131,7 @@ class RpcHandlersTest : public ::testing::Test {
                                               agent_loop_, prompt_builder_,
                                               tool_registry_, config_, logger_);
 
+    quantclaw::test::ReleaseHeldPorts();
     server_->Start();
     ASSERT_TRUE(quantclaw::test::WaitForServerReady(port_, 5000))
         << "Server not ready on port " << port_;
@@ -417,6 +418,7 @@ class RpcReloadTest : public ::testing::Test {
         *server_, session_manager_, agent_loop_, prompt_builder_,
         tool_registry_, config_, logger_, reload_fn_);
 
+    quantclaw::test::ReleaseHeldPorts();
     server_->Start();
     ASSERT_TRUE(quantclaw::test::WaitForServerReady(port_, 5000))
         << "Server not ready on port " << port_;

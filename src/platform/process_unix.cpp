@@ -3,7 +3,6 @@
 
 #ifndef _WIN32
 
-#include <poll.h>
 #include <sys/resource.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -18,6 +17,8 @@
 
 #include "quantclaw/common/defer.hpp"
 #include "quantclaw/platform/process.hpp"
+
+#include <poll.h>
 
 namespace quantclaw::platform {
 
@@ -105,7 +106,6 @@ int wait_process(ProcessId pid, int timeout_ms) {
     if (r <= 0) {
       return -1;
     }
-      return -1;
     return WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
   }
 

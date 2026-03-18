@@ -204,7 +204,13 @@ ExecResult exec_capture(const std::string& command, int timeout_seconds,
     // Check if there is data or if process ended.
     DWORD avail = 0;
     if (!PeekNamedPipe(read_pipe, nullptr, 0, nullptr, &avail, nullptr)) {
-      break;  // pipe broken — child exited
+      // Pipe closed does not guarantee process exit; keep timeout enforcement.
+      DWORD wr =
+          WaitForSingleObject(pi.hProcess, remaining < 100 ? remaining : 100);
+      if (wr == WAIT_OBJECT_0) {
+        break;
+      }
+      continue;
     }
     if (avail == 0) {
       // No data; wait briefly for process or new data.
@@ -228,7 +234,13 @@ ExecResult exec_capture(const std::string& command, int timeout_seconds,
     if (!ReadFile(read_pipe, buffer, sizeof(buffer) - 1, &bytes_read,
                   nullptr) ||
         bytes_read == 0) {
-      break;
+      // ReadFile failed or returned 0 bytes; check if process exited.
+      DWORD wr =
+          WaitForSingleObject(pi.hProcess, remaining < 100 ? remaining : 100);
+      if (wr == WAIT_OBJECT_0) {
+        break;
+      }
+      continue;
     }
     buffer[bytes_read] = '\0';
     result.output += buffer;

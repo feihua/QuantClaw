@@ -149,13 +149,21 @@ ExecResult exec_capture(const std::string& command, int timeout_seconds,
     // Only on Linux — macOS has different rlimit semantics for some resources.
 #ifdef __linux__
     struct rlimit cpu_lim = {30, 60};
-    setrlimit(RLIMIT_CPU, &cpu_lim);
+    if (setrlimit(RLIMIT_CPU, &cpu_lim) != 0) {
+      _exit(126);  // Resource limit setup failed
+    }
     struct rlimit mem_lim = {256ULL * 1024 * 1024, 512ULL * 1024 * 1024};
-    setrlimit(RLIMIT_AS, &mem_lim);
+    if (setrlimit(RLIMIT_AS, &mem_lim) != 0) {
+      _exit(126);
+    }
     struct rlimit fsz_lim = {64ULL * 1024 * 1024, 128ULL * 1024 * 1024};
-    setrlimit(RLIMIT_FSIZE, &fsz_lim);
+    if (setrlimit(RLIMIT_FSIZE, &fsz_lim) != 0) {
+      _exit(126);
+    }
     struct rlimit nproc_lim = {32, 64};
-    setrlimit(RLIMIT_NPROC, &nproc_lim);
+    if (setrlimit(RLIMIT_NPROC, &nproc_lim) != 0) {
+      _exit(126);
+    }
 #endif
 
     execl("/bin/sh", "sh", "-c", command.c_str(), nullptr);
@@ -207,8 +215,24 @@ ExecResult exec_capture(const std::string& command, int timeout_seconds,
     }
 
     ssize_t n = read(pipefd[0], buffer, sizeof(buffer) - 1);
-    if (n <= 0)
-      break;  // EOF or error
+    if (n < 0) {
+      if (errno == EINTR)
+        continue;
+      break;  // read error
+    }
+    if (n == 0) {
+      // EOF - child closed output, but may still be running.
+      // Check if process has exited (non-blocking).
+      int status;
+      pid_t result_pid = waitpid(pid, &status, WNOHANG);
+      if (result_pid == pid) {
+        // Process exited
+        break;
+      }
+      // Still running; continue loop to enforce timeout.
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      continue;
+    }
     buffer[n] = '\0';
     result.output += buffer;
   }

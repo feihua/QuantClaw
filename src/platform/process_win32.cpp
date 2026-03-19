@@ -74,8 +74,7 @@ ProcessId spawn_process(const std::vector<std::string>& args,
   PROCESS_INFORMATION pi = {};
 
   BOOL ok = CreateProcessA(
-      nullptr, cmd_buf.data(), nullptr, nullptr, FALSE,
-      env.empty() ? 0 : 0,
+      nullptr, cmd_buf.data(), nullptr, nullptr, FALSE, env.empty() ? 0 : 0,
       env.empty() ? nullptr : env_buf.data(),
       working_dir.empty() ? nullptr : working_dir.c_str(), &si, &pi);
 
